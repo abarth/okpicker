@@ -1,0 +1,4 @@
+node_modules/
+*.ccx
+dist/
+.DS_Store

@@ -1,0 +1,466 @@
+/*
+ * Panel styling.  Colours are written literally (no custom properties) because
+ * UXP's CSS support is a subset of the web platform's; the dark values are the
+ * default and a prefers-color-scheme block flips them for the light themes.
+ * Anything painted by the renderer relies on alpha instead of a known
+ * background, so it works under either theme.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 8px;
+  font-family: "Adobe Clean", -apple-system, "Segoe UI", sans-serif;
+  font-size: 11px;
+  color: #d6d6d6;
+  background-color: transparent;
+  user-select: none;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------- document bar */
+
+.docbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.docbar-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  overflow: hidden;
+}
+
+.docname {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+.chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  color: #cfcfcf;
+  background-color: rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip.warn {
+  color: #ffd9a0;
+  background-color: rgba(255, 170, 40, 0.20);
+}
+
+.icon-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  color: #d6d6d6;
+  background-color: rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+/* ------------------------------------------------------------ C/H diagram */
+
+.plotrow {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.plot {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: crosshair;
+}
+
+.vramp {
+  position: relative;
+  flex: 0 0 auto;
+  width: 22px;
+  margin-left: 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  background-color: rgba(127, 127, 127, 0.12);
+}
+
+.surface {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.surface img,
+.surface canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.marker {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid #ffffff;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.marker i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: 6px;
+}
+
+.vthumb {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  height: 5px;
+  margin-top: -3px;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: 3px;
+  background-color: #ffffff;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ colour readout */
+
+.swatchrow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.swatch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 34px;
+  margin-right: 8px;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  border-radius: 3px;
+  background-color: #000000;
+}
+
+.oog {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  display: none;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: bold;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+}
+
+.swatch.clipped .oog {
+  display: block;
+}
+
+.readout {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.readout-line {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 17px;
+}
+
+.hex {
+  flex: 0 0 auto;
+  width: 74px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 3px;
+  color: inherit;
+  background-color: rgba(127, 127, 127, 0.12);
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.css {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #a8a8a8;
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.mini-btn {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 3px;
+  color: #b8b8b8;
+  background-color: rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.mini-btn:hover {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+/* ----------------------------------------------------------------- sliders */
+
+.sliders {
+  margin-bottom: 8px;
+}
+
+.slider {
+  margin-bottom: 8px;
+}
+
+.slider-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.slider-head label {
+  flex: 1 1 auto;
+  color: #b0b0b0;
+}
+
+.value {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 3px;
+  color: inherit;
+  background-color: rgba(127, 127, 127, 0.12);
+  font-family: monospace;
+  font-size: 11px;
+  text-align: right;
+}
+
+.unit {
+  flex: 0 0 auto;
+  min-width: 14px;
+  margin-left: 3px;
+  color: #8f8f8f;
+  font-size: 10px;
+}
+
+.track {
+  position: relative;
+  height: 18px;
+  border-radius: 3px;
+  background-color: rgba(127, 127, 127, 0.12);
+  cursor: pointer;
+}
+
+.thumb {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 5px;
+  margin-left: -3px;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: 3px;
+  background-color: #ffffff;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------- options */
+
+.options {
+  margin-bottom: 8px;
+}
+
+.option-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.option-row label {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  color: #b0b0b0;
+}
+
+.option-row select {
+  flex: 1 1 auto;
+  height: 20px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 3px;
+  color: inherit;
+  background-color: rgba(127, 127, 127, 0.12);
+  font-size: 11px;
+}
+
+.checks {
+  flex-wrap: wrap;
+}
+
+.check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+.check input {
+  margin: 0 4px 0 0;
+}
+
+/* ----------------------------------------------------------------- actions */
+
+.actions {
+  display: flex;
+  flex-direction: row;
+}
+
+.btn {
+  flex: 1 1 auto;
+  height: 24px;
+  margin-right: 5px;
+  padding: 0 6px;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 12px;
+  color: inherit;
+  background-color: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn:last-child {
+  margin-right: 0;
+}
+
+.btn:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.btn.primary {
+  border-color: transparent;
+  color: #ffffff;
+  background-color: #2680eb;
+}
+
+.btn.primary:hover {
+  background-color: #1473e6;
+}
+
+.btn[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.status {
+  min-height: 13px;
+  margin-top: 6px;
+  color: #8f8f8f;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status.error {
+  color: #ff9b8a;
+}
+
+/* ------------------------------------------------------------- light themes */
+
+@media (prefers-color-scheme: light) {
+  body {
+    color: #2b2b2b;
+  }
+
+  .chip {
+    color: #3a3a3a;
+    background-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .chip.warn {
+    color: #7a4a00;
+    background-color: rgba(255, 170, 40, 0.35);
+  }
+
+  .icon-btn,
+  .mini-btn {
+    color: #3a3a3a;
+    background-color: rgba(0, 0, 0, 0.07);
+  }
+
+  .icon-btn:hover,
+  .mini-btn:hover {
+    color: #000000;
+    background-color: rgba(0, 0, 0, 0.14);
+  }
+
+  .css {
+    color: #6a6a6a;
+  }
+
+  .slider-head label,
+  .option-row label {
+    color: #4a4a4a;
+  }
+
+  .unit,
+  .status {
+    color: #6a6a6a;
+  }
+
+  .btn:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .status.error {
+    color: #b32d1c;
+  }
+}
