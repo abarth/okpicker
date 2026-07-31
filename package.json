@@ -1,0 +1,11 @@
+{
+  "name": "okpicker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OKLCH color picker panel for Adobe Photoshop 2026 (UXP)",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "icons": "node tools/make-icons.js"
+  }
+}
