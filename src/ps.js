@@ -196,20 +196,6 @@
     });
   }
 
-  // --------------------------------------------------------------- clipboard
-
-  async function copyText(text) {
-    if (uxp && uxp.clipboard && uxp.clipboard.setContent) {
-      await uxp.clipboard.setContent({ 'text/plain': text });
-      return true;
-    }
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-    return false;
-  }
-
   /** Register the panel entry point so Photoshop can drive its lifecycle. */
   function registerPanel(id, handlers) {
     if (!uxp || !uxp.entrypoints || !uxp.entrypoints.setup) return false;
@@ -231,7 +217,6 @@
     getColor: getColor,
     onDocumentChange: onDocumentChange,
     onSwatchChange: onSwatchChange,
-    copyText: copyText,
     registerPanel: registerPanel
   };
 });

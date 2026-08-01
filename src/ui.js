@@ -1,8 +1,13 @@
 'use strict';
 /*
- * Panel controller: owns the OKLCH state, schedules repaints and talks to
- * Photoshop.  Loaded last; depends on the globals published by the other
- * scripts in index.html.
+ * Panel controller: owns the OKLCH state, schedules repaints and keeps the
+ * picker bound to Photoshop's foreground colour.  Loaded last; depends on the
+ * globals published by the other scripts in index.html.
+ *
+ * The binding runs both ways.  Anything that moves the picker is pushed to the
+ * foreground swatch straight away, and any foreground change made elsewhere in
+ * Photoshop is pulled back into the picker.  The document's colour profile is
+ * followed automatically, so there are no modes and no buttons.
  */
 (function () {
 
@@ -14,6 +19,7 @@
 
   function $(id) { return doc.getElementById(id); }
   function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+  function clamp(x, lo, hi) { return x < lo ? lo : (x > hi ? hi : x); }
   function wrapHue(h) { h = h % 360; return h < 0 ? h + 360 : h; }
 
   var raf = (typeof requestAnimationFrame === 'function')
@@ -57,6 +63,8 @@
   Surface.prototype.paint = function (img) {
     if (this.kind === 'canvas') {
       var el = this.el;
+      // Assigning width/height wipes the bitmap, so only touch them when the
+      // pixel size really changed: otherwise every repaint would flash.
       if (el.width !== img.width || el.height !== img.height) {
         el.width = img.width;
         el.height = img.height;
@@ -64,7 +72,6 @@
       var ctx = el.getContext('2d');
       var id = ctx.createImageData(img.width, img.height);
       id.data.set(img.data);
-      ctx.clearRect(0, 0, img.width, img.height);
       ctx.putImageData(id, 0, 0);
     } else {
       this.el.setAttribute('src', OKPng.dataUri(img.data, img.width, img.height));
@@ -78,33 +85,21 @@
     C: 0.14,
     desiredC: 0.14,
     H: 250,
-    target: 'document',
-    clampChroma: true,
-    autoApply: false,
-    docSpaceId: 'srgb',
-    docNote: '',
-    docWarn: false,
-    doc: { hasDocument: false }
+    spaceId: 'srgb'
   };
 
   var els = {};
   var surfaces = {};
-  var plotSize = 180;
   var maxCCache = {};
-  var lastSelfApply = 0;
-
-  function activeSpaceId() {
-    return state.target === 'document' ? state.docSpaceId : state.target;
-  }
 
   function activeSpace() {
-    return OKColor.getSpace(activeSpaceId()) || OKColor.spaces.srgb;
+    return OKColor.getSpace(state.spaceId) || OKColor.spaces.srgb;
   }
 
   /** Chroma at the outer edge of the diagram: the space's own maximum plus a
    *  little headroom so the shape never touches the border. */
   function plotMaxC() {
-    var id = activeSpaceId();
+    var id = state.spaceId;
     if (maxCCache[id] === undefined) {
       maxCCache[id] = Math.ceil(OKColor.spaceMaxChroma(activeSpace()) * 1.06 * 200) / 200;
     }
@@ -115,16 +110,15 @@
     return OKColor.maxChroma(activeSpace(), state.L, state.H, 22);
   }
 
-  /** Re-derive the effective chroma after L, H, the gamut or the clamp change. */
+  /** Chroma is always held on the gamut hull, so re-derive it after L, H or the
+   *  document's colour space change. */
   function reconcileChroma() {
-    var c = Math.min(state.desiredC, plotMaxC());
-    if (state.clampChroma) c = Math.min(c, gamutChroma());
-    state.C = c;
+    state.C = Math.min(state.desiredC, plotMaxC(), gamutChroma());
   }
 
-  function setColor(next, opts) {
-    opts = opts || {};
-    var plotDirty = !!opts.plot;
+  /** Apply a user-driven change: repaint, then hand the colour to Photoshop. */
+  function setColor(next) {
+    var plotDirty = false;
     if (next.L !== undefined) {
       var L = clamp01(next.L);
       if (L !== state.L) plotDirty = true;
@@ -133,36 +127,29 @@
     if (next.H !== undefined) state.H = wrapHue(next.H);
     if (next.C !== undefined) state.desiredC = Math.max(0, next.C);
     reconcileChroma();
-    requestRender({ plot: plotDirty, ramps: true, draft: opts.draft });
+    requestRender({ plot: plotDirty, ramps: true });
+    pushForeground();
   }
 
   // --------------------------------------------------------------- painting
 
   var dirty = { plot: true, l: true, c: true, h: true, vramp: true };
   var frameQueued = false;
-  var draftQuality = false;
-  var settleTimer = null;
 
   function requestRender(opts) {
     opts = opts || {};
-    if (opts.plot) { dirty.plot = true; }
+    if (opts.plot) dirty.plot = true;
     if (opts.ramps) { dirty.l = true; dirty.c = true; dirty.h = true; dirty.vramp = true; }
-    if (opts.draft) draftQuality = true;
-    if (!frameQueued) {
-      frameQueued = true;
-      raf(function () {
-        frameQueued = false;
-        try { renderFrame(); } catch (e) { setStatus(String(e && e.message || e), true); }
-      });
-    }
-    if (opts.draft) {
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(function () {
-        settleTimer = null;
-        draftQuality = false;
-        requestRender({ plot: true, ramps: true });
-      }, 150);
-    }
+    if (frameQueued) return;
+    frameQueued = true;
+    raf(function () {
+      frameQueued = false;
+      try {
+        renderFrame();
+      } catch (e) {
+        console.error('okpicker: repaint failed', e);
+      }
+    });
   }
 
   function outlineColor() {
@@ -182,33 +169,37 @@
     return Math.max(80, Math.min(640, Math.round(w * pixelRatio())));
   }
 
+  /**
+   * Repaint whatever is dirty, always at full resolution.  A worst-case frame
+   * (the lightness axis moving, so the diagram and all four ramps are stale)
+   * costs about ten milliseconds, which is cheap enough that there is no need
+   * for a reduced-quality pass while dragging.
+   */
   function renderFrame() {
     var space = activeSpace();
     var maxC = plotMaxC();
+    var ratio = pixelRatio();
     // Canvas takes a bitmap straight from memory, so it can afford more pixels
     // than the PNG-through-a-data-URI fallback.
     var plotCap = surfaces.plot.kind === 'canvas' ? 448 : 320;
 
     if (dirty.plot) {
-      var size = draftQuality
-        ? 128
-        : Math.max(160, Math.min(plotCap, Math.round(plotSize * pixelRatio())));
-      var env = OKColor.chromaEnvelope(space, state.L, draftQuality ? 180 : 720, draftQuality ? 14 : 20);
+      var size = Math.max(96, Math.min(plotCap, Math.round(layoutSizes.plot * ratio)));
       surfaces.plot.paint(OKRender.chPlot({
         space: space, L: state.L, maxC: maxC, size: size,
-        envelope: env, outline: outlineColor()
+        envelope: OKColor.chromaEnvelope(space, state.L, 720, 20),
+        outline: outlineColor()
       }));
       dirty.plot = false;
     }
 
-    var ratio = pixelRatio();
-    var rampHeight = Math.round(18 * ratio);
+    var rampHeight = Math.max(6, Math.round(layoutSizes.track * ratio));
 
     if (dirty.vramp) {
       surfaces.vramp.paint(OKRender.lightnessRamp({
         space: space, C: state.C, H: state.H,
-        width: Math.round(22 * ratio),
-        height: Math.max(80, Math.min(420, Math.round(plotSize * ratio))),
+        width: Math.round(layoutSizes.vrampWidth * ratio),
+        height: Math.max(40, Math.min(560, Math.round(layoutSizes.plot * ratio))),
         vertical: true
       }));
       dirty.vramp = false;
@@ -252,49 +243,15 @@
     els.hThumb.style.left = ((state.H / 360) * 100) + '%';
   }
 
-  function setValue(el, text) {
-    // Never fight with a field the user is typing into; edits are written back
-    // explicitly when they are committed.
-    if (doc.activeElement !== el) el.value = text;
-  }
-
-  function formatL() { return (state.L * 100).toFixed(2); }
-  function formatC() { return state.C.toFixed(4); }
-  function formatH() { return state.H.toFixed(2); }
-
   function currentHex() {
     return OKColor.describe(activeSpace(), state.L, state.C, state.H).docHex;
   }
 
   function updateReadout() {
-    var space = activeSpace();
-    var info = OKColor.describe(space, state.L, state.C, state.H);
+    var info = OKColor.describe(activeSpace(), state.L, state.C, state.H);
     els.swatch.style.backgroundColor = info.displayHex;
-    if (info.inGamut) els.swatch.classList.remove('clipped');
-    else els.swatch.classList.add('clipped');
-
-    setValue(els.hexInput, info.docHex);
-    setValue(els.lValue, formatL());
-    setValue(els.cValue, formatC());
-    setValue(els.hValue, formatH());
-    els.oklchOut.textContent = OKColor.formatOklch(state.L, state.C, state.H);
-    els.cLimit.textContent = '/ ' + gamutChroma().toFixed(3);
-  }
-
-  var statusTimer = null;
-
-  function setStatus(text, isError) {
-    els.status.textContent = text || '';
-    if (isError) els.status.classList.add('error');
-    else els.status.classList.remove('error');
-    if (statusTimer) clearTimeout(statusTimer);
-    if (text) {
-      statusTimer = setTimeout(function () {
-        statusTimer = null;
-        els.status.textContent = '';
-        els.status.classList.remove('error');
-      }, 5000);
-    }
+    // Never fight with the field while it is being typed into.
+    if (doc.activeElement !== els.hexInput) els.hexInput.value = info.docHex;
   }
 
   // ------------------------------------------------------------ interaction
@@ -332,231 +289,254 @@
     });
   }
 
-  function interactionEnd() {
-    if (state.autoApply) applyColor('foreground');
+  // ------------------------------------------------------------- Photoshop
+
+  var pushInFlight = false;
+  var pushQueued = false;
+  var lastPushedLab = null;
+  var lastPushAt = 0;
+  var pullInFlight = false;
+
+  /** True when two D50 Lab triples are the same colour as far as Photoshop's
+   *  own quantisation is concerned. */
+  function sameLab(a, b) {
+    if (!a || !b) return false;
+    return Math.abs(a[0] - b[0]) < 0.6 &&
+           Math.abs(a[1] - b[1]) < 0.6 &&
+           Math.abs(a[2] - b[2]) < 0.6;
   }
 
   /**
-   * Wire up one of the numeric fields.  `format` reports the canonical text for
-   * the current state and is written straight back after every edit, so a value
-   * the gamut clamp rejected never lingers in the box.
+   * Send the current colour to the foreground swatch.  Calls that arrive while
+   * a write is in flight collapse into a single follow-up write of whatever the
+   * state is by then, so dragging stays live without queueing up work.
    */
-  function bindNumeric(el, step, apply, format) {
-    function commit() {
-      var v = parseFloat(String(el.value).replace(/[^0-9.eE+-]/g, ''));
-      if (isFinite(v)) apply(v);
-      el.value = format();
-      updateReadout();
+  function pushForeground() {
+    if (!PS.available()) return;
+    if (pushInFlight) { pushQueued = true; return; }
+    writeForeground();
+  }
+
+  async function writeForeground() {
+    pushInFlight = true;
+    try {
+      var info = OKColor.describe(activeSpace(), state.L, state.C, state.H);
+      lastPushedLab = info.lab;
+      try {
+        await PS.setColor('foreground', { lab: info.lab });
+      } catch (e) {
+        // Lab is preferred because Photoshop converts it into the document's
+        // space for us; if that call is refused, fall back to raw values.
+        await PS.setColor('foreground', { rgb: info.doc255 });
+      }
+    } catch (e) {
+      console.error('okpicker: could not set the foreground colour', e);
+    } finally {
+      lastPushAt = Date.now();
+      pushInFlight = false;
     }
-    el.addEventListener('change', commit);
-    el.addEventListener('blur', commit);
-    el.addEventListener('keydown', function (e) {
-      var key = e.key;
-      if (key === 'Enter') {
-        commit();
-        if (state.autoApply) applyColor('foreground');
+    if (pushQueued) {
+      pushQueued = false;
+      writeForeground();
+    }
+  }
+
+  /** Load Photoshop's foreground colour into the picker. */
+  async function pullForeground() {
+    if (!PS.available() || pullInFlight) return;
+    pullInFlight = true;
+    try {
+      var c = await PS.getColor('foreground');
+      if (!c) return;
+      if (c.lab && sameLab(c.lab, lastPushedLab)) {
+        // Our own write coming back as a notification.  Remember the rounded
+        // values Photoshop settled on so the next comparison is exact.
+        lastPushedLab = c.lab;
         return;
       }
-      if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
-      var v = parseFloat(String(el.value).replace(/[^0-9.eE+-]/g, ''));
-      if (!isFinite(v)) return;
-      if (e.preventDefault) e.preventDefault();
-      apply(v + step * (e.shiftKey ? 10 : 1) * (key === 'ArrowUp' ? 1 : -1));
-      el.value = format();
-      updateReadout();
-    });
-  }
 
-  // ------------------------------------------------------------- Photoshop
-
-  function describeTarget() {
-    var space = activeSpace();
-    if (state.target !== 'document') return space.label + ' (manual)';
-    return state.docNote || space.label;
-  }
-
-  function updateDocBar() {
-    var info = state.doc;
-    if (!PS.available()) {
-      els.docName.textContent = 'Preview mode';
-    } else if (!info.hasDocument) {
-      els.docName.textContent = 'No document';
-    } else {
-      els.docName.textContent = info.name || 'Untitled';
-    }
-    els.docProfile.textContent = describeTarget();
-    if (state.docWarn && state.target === 'document') els.docProfile.classList.add('warn');
-    else els.docProfile.classList.remove('warn');
-
-    var hasHost = PS.available();
-    els.fgBtn.disabled = !hasHost;
-    els.bgBtn.disabled = !hasHost;
-    els.pickBtn.disabled = !hasHost;
-  }
-
-  async function refreshDocument() {
-    var previousSpace = activeSpaceId();
-    var info = { hasDocument: false };
-    if (PS.available()) {
-      info = await PS.getDocumentInfo();
-    }
-    state.doc = info;
-    state.docWarn = false;
-
-    if (!PS.available()) {
-      state.docSpaceId = 'srgb';
-      state.docNote = 'sRGB (Photoshop not connected)';
-      state.docWarn = true;
-    } else if (!info.hasDocument) {
-      state.docSpaceId = 'srgb';
-      state.docNote = 'sRGB (no document)';
-    } else if (info.modeId && info.modeId !== 'RGBColor') {
-      // We can only compute a gamut hull for the RGB working spaces we know the
-      // primaries of; an ICC CMYK/Gray gamut would need the profile itself.
-      state.docSpaceId = 'srgb';
-      state.docNote = info.mode + ' document — showing sRGB';
-      state.docWarn = true;
-    } else {
-      var match = OKColor.matchProfile(info.profile);
-      if (match && match.exact) {
-        state.docSpaceId = match.spaceId;
-        state.docNote = info.profile;
-      } else if (match) {
-        state.docSpaceId = match.spaceId;
-        state.docNote = info.profile + ' ≈ ' + OKColor.getSpace(match.spaceId).label;
-        state.docWarn = true;
+      var lch;
+      if (c.lab) {
+        lch = OKColor.labD50ToOklch(c.lab[0], c.lab[1], c.lab[2]);
       } else {
-        state.docSpaceId = 'srgb';
-        state.docNote = (info.profile || 'Unknown profile') + ' → sRGB';
-        state.docWarn = true;
+        var space = activeSpace();
+        var lin = OKColor.decodeChannels(space, [c.rgb[0] / 255, c.rgb[1] / 255, c.rgb[2] / 255]);
+        lch = OKColor.linearToOklch(space, lin[0], lin[1], lin[2]);
       }
-    }
 
-    updateDocBar();
-    reconcileChroma();
-    requestRender({ plot: activeSpaceId() !== previousSpace, ramps: true });
-  }
-
-  async function applyColor(which) {
-    if (!PS.available()) {
-      setStatus('Photoshop API is not available in this context', true);
-      return;
-    }
-    var info = OKColor.describe(activeSpace(), state.L, state.C, state.H);
-    lastSelfApply = Date.now();
-    try {
-      await PS.setColor(which, { lab: info.lab });
-      setStatus((which === 'background' ? 'Background' : 'Foreground') + ' set to ' + info.docHex +
-        (info.inGamut ? '' : ' (clipped to gamut)'));
+      var L = clamp01(lch[0]);
+      var plotDirty = L !== state.L;
+      state.L = L;
+      state.desiredC = Math.max(0, lch[1]);
+      state.H = wrapHue(lch[2]);
+      reconcileChroma();
+      requestRender({ plot: plotDirty, ramps: true });
     } catch (e) {
-      try {
-        await PS.setColor(which, { rgb: info.doc255 });
-        setStatus((which === 'background' ? 'Background' : 'Foreground') + ' set via RGB fallback');
-      } catch (e2) {
-        setStatus('Could not set colour: ' + (e2 && e2.message ? e2.message : e2), true);
-      }
+      console.error('okpicker: could not read the foreground colour', e);
+    } finally {
+      pullInFlight = false;
     }
   }
 
-  async function pickUpColor() {
-    if (!PS.available()) {
-      setStatus('Photoshop API is not available in this context', true);
-      return;
+  /**
+   * Follow the frontmost document's colour space.  Only the RGB working spaces
+   * whose primaries we know can be given a real gamut hull; everything else
+   * (CMYK, Grayscale, Lab, an unrecognised ICC profile) falls back to sRGB.
+   */
+  async function refreshDocument() {
+    var previous = state.spaceId;
+    var spaceId = 'srgb';
+    if (PS.available()) {
+      try {
+        var info = await PS.getDocumentInfo();
+        if (info.hasDocument && info.modeId === 'RGBColor') {
+          var match = OKColor.matchProfile(info.profile);
+          if (match) spaceId = match.spaceId;
+        }
+      } catch (e) {
+        console.error('okpicker: could not read the document profile', e);
+      }
     }
-    var c = await PS.getColor('foreground');
-    if (!c) {
-      setStatus('Could not read the foreground colour', true);
-      return;
-    }
-    var lch;
-    if (c.lab) {
-      lch = OKColor.labD50ToOklch(c.lab[0], c.lab[1], c.lab[2]);
-    } else {
-      var space = activeSpace();
-      var lin = OKColor.decodeChannels(space, [c.rgb[0] / 255, c.rgb[1] / 255, c.rgb[2] / 255]);
-      lch = OKColor.linearToOklch(space, lin[0], lin[1], lin[2]);
-    }
-    state.L = clamp01(lch[0]);
-    state.H = wrapHue(lch[2]);
-    state.desiredC = lch[1];
+    if (spaceId === previous) return;
+    state.spaceId = spaceId;
     reconcileChroma();
     requestRender({ plot: true, ramps: true });
-    setStatus('Loaded ' + OKColor.formatOklch(state.L, state.C, state.H));
   }
 
-  async function copy(text) {
-    try {
-      var ok = await PS.copyText(text);
-      setStatus(ok ? 'Copied ' + text : 'Clipboard is not available', !ok);
-    } catch (e) {
-      setStatus('Clipboard is not available', true);
-    }
+  async function syncFromHost() {
+    await refreshDocument();
+    await pullForeground();
   }
 
   // ------------------------------------------------------------------ setup
+  // The panel never scrolls.  Everything below the diagram has a fixed height,
+  // so the diagram takes whatever is left over; when even that is not enough,
+  // the chrome steps down through progressively tighter metrics.
 
-  function layout() {
-    var width = 0;
-    try { width = els.root.getBoundingClientRect().width; } catch (e) { width = 0; }
-    if (!(width > 0)) width = 260;
-    var size = Math.round(width - 30); // vertical ramp (22) + its margin (8)
-    plotSize = Math.max(110, Math.min(420, size));
-    els.plot.style.width = plotSize + 'px';
-    els.plot.style.height = plotSize + 'px';
-    els.lRamp.style.height = plotSize + 'px';
+  var VRAMP_WIDTH = 18;   // must match .vramp in styles.css
+  var VRAMP_GAP = 6;      // ...and its left margin
+  var AXIS_WIDTH = 10;    // ...and .axis
+  var BODY_PAD = 6;       // ...and the body's padding
+  var SWATCH_MAX = 72;    // tallest the colour preview is allowed to grow
+  var TRACK_MAX = 26;     // ...and the axis ramps
+
+  var DENSITY = [
+    { track: 15, trackGap: 5, swatch: 26, rowGap: 6, minPlot: 150 },
+    { track: 13, trackGap: 4, swatch: 24, rowGap: 5, minPlot: 120 },
+    { track: 11, trackGap: 3, swatch: 21, rowGap: 4, minPlot: 96 },
+    { track: 9, trackGap: 2, swatch: 19, rowGap: 3, minPlot: 72 },
+    { track: 8, trackGap: 2, swatch: 17, rowGap: 2, minPlot: 0 }
+  ];
+
+  var layoutSizes = { plot: 180, track: 15, vrampWidth: VRAMP_WIDTH };
+
+  /** Height of everything under the diagram, for one set of metrics. */
+  function chromeHeight(d) {
+    return d.rowGap + d.swatch + d.rowGap + (3 * d.track + 2 * d.trackGap);
   }
 
-  function buildTargetOptions() {
-    var select = els.targetSelect;
-    var options = [{ value: 'document', label: 'Document profile' }];
-    OKColor.spaceList.forEach(function (sp) {
-      options.push({ value: sp.id, label: sp.label });
-    });
-    options.forEach(function (o) {
-      var el = doc.createElement('option');
-      el.value = o.value;
-      el.textContent = o.label;
-      select.appendChild(el);
-    });
-    select.value = state.target;
+  /**
+   * How much room the panel actually has, top to bottom.  Only sources that are
+   * independent of what we have already drawn will do: measuring our own
+   * content and then sizing the content to the measurement would ratchet the
+   * panel smaller on every pass.  `body` is the last resort for that reason.
+   */
+  function viewportHeight() {
+    if (typeof window !== 'undefined' && window.innerHeight > 0) return window.innerHeight;
+    var de = doc.documentElement;
+    if (de && de.clientHeight > 0) return de.clientHeight;
+    if (doc.body && doc.body.clientHeight > 0) return doc.body.clientHeight;
+    return 420;
+  }
+
+  function rootWidth() {
+    var w = 0;
+    try { w = els.root.getBoundingClientRect().width; } catch (e) { w = 0; }
+    return w > 0 ? w : 240;
+  }
+
+  function layout() {
+    var width = rootWidth();
+    var height = viewportHeight() - 2 * BODY_PAD;
+    var widthLimit = Math.max(24, width - VRAMP_WIDTH - VRAMP_GAP);
+
+    var d = DENSITY[DENSITY.length - 1];
+    for (var i = 0; i < DENSITY.length; i++) {
+      if (height - chromeHeight(DENSITY[i]) >= Math.min(widthLimit, DENSITY[i].minPlot)) {
+        d = DENSITY[i];
+        break;
+      }
+    }
+
+    var plot = clamp(Math.min(widthLimit, height - chromeHeight(d)), 28, 560);
+
+    // The diagram is square, so a tall narrow panel still has height to spare
+    // once the diagram is as wide as it can be.  Spend it on the ramps and the
+    // colour preview rather than leaving it as a gap in the middle.
+    var track = d.track;
+    var swatch = d.swatch;
+    var slack = height - chromeHeight(d) - plot;
+    if (slack > 0) {
+      var grow = Math.min(TRACK_MAX - track, Math.floor(slack / 3));
+      if (grow > 0) { track += grow; slack -= 3 * grow; }
+      swatch += Math.min(SWATCH_MAX - swatch, slack);
+    }
+
+    var changed = plot !== layoutSizes.plot || track !== layoutSizes.track;
+    layoutSizes = { plot: plot, track: track, vrampWidth: VRAMP_WIDTH };
+
+    els.plot.style.width = plot + 'px';
+    els.plot.style.height = plot + 'px';
+    els.lRamp.style.width = VRAMP_WIDTH + 'px';
+    els.lRamp.style.height = plot + 'px';
+    els.lRamp.style.marginLeft = VRAMP_GAP + 'px';
+
+    els.swatchrow.style.height = swatch + 'px';
+    els.swatchrow.style.marginTop = d.rowGap + 'px';
+    els.sliders.style.marginTop = d.rowGap + 'px';
+
+    for (var s = 0; s < els.sliderRows.length; s++) {
+      var row = els.sliderRows[s];
+      row.style.height = track + 'px';
+      row.style.marginTop = (s === 0 ? 0 : d.trackGap) + 'px';
+      row.firstElementChild.style.width = AXIS_WIDTH + 'px';
+      row.firstElementChild.style.lineHeight = track + 'px';
+    }
+
+    return changed;
+  }
+
+  function relayout() {
+    if (layout()) requestRender({ plot: true, ramps: true });
+    else requestRender({ ramps: true });
   }
 
   function bindEvents() {
-    var maxC = plotMaxC;
-
     bindDrag(els.plot, function (f) {
-      var v = OKRender.fractionToCh(f.x, f.y, maxC());
-      setColor({ C: v.C, H: v.H }, { draft: true });
-    }, interactionEnd);
+      var v = OKRender.fractionToCh(f.x, f.y, plotMaxC());
+      setColor({ C: v.C, H: v.H });
+    }, pushForeground);
 
     bindDrag(els.lRamp, function (f) {
-      setColor({ L: 1 - clamp01(f.y) }, { draft: true, plot: true });
-    }, interactionEnd);
+      setColor({ L: 1 - clamp01(f.y) });
+    }, pushForeground);
 
     bindDrag(els.lTrack, function (f) {
-      setColor({ L: clamp01(f.x) }, { draft: true, plot: true });
-    }, interactionEnd);
+      setColor({ L: clamp01(f.x) });
+    }, pushForeground);
 
     bindDrag(els.cTrack, function (f) {
-      setColor({ C: clamp01(f.x) * maxC() }, { draft: true });
-    }, interactionEnd);
+      setColor({ C: clamp01(f.x) * plotMaxC() });
+    }, pushForeground);
 
     bindDrag(els.hTrack, function (f) {
-      setColor({ H: clamp01(f.x) * 360 }, { draft: true });
-    }, interactionEnd);
-
-    bindNumeric(els.lValue, 0.5,
-      function (v) { setColor({ L: v / 100 }, { plot: true }); }, formatL);
-    bindNumeric(els.cValue, 0.005,
-      function (v) { setColor({ C: v }); }, formatC);
-    bindNumeric(els.hValue, 1,
-      function (v) { setColor({ H: v }); }, formatH);
+      setColor({ H: clamp01(f.x) * 360 });
+    }, pushForeground);
 
     function commitHex() {
       var enc = OKColor.parseHex(els.hexInput.value);
       if (!enc) {
         els.hexInput.value = currentHex();
-        setStatus('Enter a hex colour such as #3A7BD5', true);
         return;
       }
       var space = activeSpace();
@@ -564,11 +544,11 @@
       var lch = OKColor.linearToOklch(space, lin[0], lin[1], lin[2]);
       state.L = clamp01(lch[0]);
       state.H = wrapHue(lch[2]);
-      state.desiredC = lch[1];
+      state.desiredC = Math.max(0, lch[1]);
       reconcileChroma();
       els.hexInput.value = currentHex();
       requestRender({ plot: true, ramps: true });
-      if (state.autoApply) applyColor('foreground');
+      pushForeground();
     }
     els.hexInput.addEventListener('change', commitHex);
     els.hexInput.addEventListener('blur', commitHex);
@@ -576,44 +556,33 @@
       if (e.key === 'Enter') commitHex();
     });
 
-    els.targetSelect.addEventListener('change', function () {
-      state.target = els.targetSelect.value;
-      updateDocBar();
-      reconcileChroma();
-      requestRender({ plot: true, ramps: true });
-    });
-
-    els.clampCheck.addEventListener('change', function () {
-      state.clampChroma = !!els.clampCheck.checked;
-      reconcileChroma();
-      requestRender({ ramps: true });
-    });
-
-    els.autoApplyCheck.addEventListener('change', function () {
-      state.autoApply = !!els.autoApplyCheck.checked;
-      if (state.autoApply) applyColor('foreground');
-    });
-
-    els.fgBtn.addEventListener('click', function () { applyColor('foreground'); });
-    els.bgBtn.addEventListener('click', function () { applyColor('background'); });
-    els.pickBtn.addEventListener('click', function () { pickUpColor(); });
-    els.refreshBtn.addEventListener('click', function () { refreshDocument(); });
-    els.copyHexBtn.addEventListener('click', function () { copy(els.hexInput.value); });
-    els.copyCssBtn.addEventListener('click', function () {
-      copy(OKColor.formatOklch(state.L, state.C, state.H));
-    });
-
     var resizeTimer = null;
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('resize', function () {
-        if (resizeTimer) clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(function () {
-          resizeTimer = null;
-          layout();
-          requestRender({ plot: true, ramps: true });
-        }, 120);
-      });
+    function onResize() {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        resizeTimer = null;
+        relayout();
+      }, 80);
     }
+
+    if (typeof ResizeObserver === 'function') {
+      try { new ResizeObserver(onResize).observe(els.root); } catch (e) { /* fall back below */ }
+    }
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('resize', onResize);
+    }
+
+    // Fitting the available space is the whole point of the layout, so do not
+    // rely on getting a resize event: two measurements twice a second is
+    // nothing, and it guarantees the panel is never taller than its dock.
+    var lastW = rootWidth(), lastH = viewportHeight();
+    setInterval(function () {
+      var w = rootWidth(), h = viewportHeight();
+      if (w === lastW && h === lastH) return;
+      lastW = w;
+      lastH = h;
+      relayout();
+    }, 500);
   }
 
   function init() {
@@ -623,22 +592,15 @@
       plotMarker: $('plotMarker'),
       lRamp: $('lRamp'),
       lRampThumb: $('lRampThumb'),
+      swatchrow: $('swatchrow'),
       swatch: $('swatch'),
       hexInput: $('hexInput'),
-      oklchOut: $('oklchOut'),
-      copyHexBtn: $('copyHexBtn'),
-      copyCssBtn: $('copyCssBtn'),
-      lTrack: $('lTrack'), lThumb: $('lThumb'), lValue: $('lValue'),
-      cTrack: $('cTrack'), cThumb: $('cThumb'), cValue: $('cValue'), cLimit: $('cLimit'),
-      hTrack: $('hTrack'), hThumb: $('hThumb'), hValue: $('hValue'),
-      targetSelect: $('targetSelect'),
-      clampCheck: $('clampCheck'),
-      autoApplyCheck: $('autoApplyCheck'),
-      fgBtn: $('fgBtn'), bgBtn: $('bgBtn'), pickBtn: $('pickBtn'),
-      refreshBtn: $('refreshBtn'),
-      docName: $('docName'), docProfile: $('docProfile'),
-      status: $('status')
+      sliders: $('sliders'),
+      lTrack: $('lTrack'), lThumb: $('lThumb'),
+      cTrack: $('cTrack'), cThumb: $('cThumb'),
+      hTrack: $('hTrack'), hThumb: $('hThumb')
     };
+    els.sliderRows = Array.prototype.slice.call(els.sliders.children);
 
     surfaces.plot = new Surface($('plotSurface'));
     surfaces.vramp = new Surface($('lRampSurface'));
@@ -646,47 +608,29 @@
     surfaces.c = new Surface($('cTrackSurface'));
     surfaces.h = new Surface($('hTrackSurface'));
 
-    buildTargetOptions();
     layout();
     bindEvents();
-    updateDocBar();
     reconcileChroma();
     requestRender({ plot: true, ramps: true });
 
     if (PS.available()) {
-      PS.onDocumentChange(function () { refreshDocument(); });
+      PS.onDocumentChange(function () { syncFromHost(); });
       PS.onSwatchChange(function (which) {
         if (which !== 'foreground') return;
-        if (Date.now() - lastSelfApply < 1500) return; // our own write coming back
-        setStatus('Foreground changed in Photoshop — press "Pick up" to load it');
+        // Ignore the echo of our own write; anything else is the user picking a
+        // colour elsewhere in Photoshop, and the picker follows it.
+        if (pushInFlight || pushQueued) return;
+        if (Date.now() - lastPushAt < 400) return;
+        pullForeground();
       });
     }
-    // Also runs without a host: it is what labels the fallback target.
-    refreshDocument();
+    syncFromHost();
 
     PS.registerPanel('okpicker.panel', {
       create: function () {},
-      show: function () { layout(); requestRender({ plot: true, ramps: true }); refreshDocument(); },
+      show: function () { relayout(); syncFromHost(); },
       hide: function () {},
-      destroy: function () {},
-      menuItems: [
-        { id: 'copyCss', label: 'Copy CSS oklch()' },
-        { id: 'copyHex', label: 'Copy hex' },
-        { id: 'pickUp', label: 'Pick up foreground colour' },
-        { id: 'reset', label: 'Reset picker' }
-      ],
-      invokeMenu: function (id) {
-        if (id === 'copyCss') copy(OKColor.formatOklch(state.L, state.C, state.H));
-        else if (id === 'copyHex') copy(els.hexInput.value);
-        else if (id === 'pickUp') pickUpColor();
-        else if (id === 'reset') {
-          state.L = 0.68;
-          state.desiredC = 0.14;
-          state.H = 250;
-          reconcileChroma();
-          requestRender({ plot: true, ramps: true });
-        }
-      }
+      destroy: function () {}
     });
   }
 

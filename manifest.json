@@ -18,20 +18,20 @@
         "default": "OKLCH Picker"
       },
       "minimumSize": {
-        "width": 230,
-        "height": 420
+        "width": 180,
+        "height": 140
       },
       "maximumSize": {
         "width": 1200,
         "height": 2000
       },
       "preferredDockedSize": {
-        "width": 280,
-        "height": 580
+        "width": 260,
+        "height": 380
       },
       "preferredFloatingSize": {
-        "width": 320,
-        "height": 640
+        "width": 300,
+        "height": 440
       },
       "icons": [
         {
@@ -53,9 +53,6 @@
       ]
     }
   ],
-  "requiredPermissions": {
-    "clipboard": "readAndWrite"
-  },
   "icons": [
     {
       "width": 23,
