@@ -408,7 +408,6 @@
   // chrome steps down through progressively tighter metrics.
 
   var BODY_PAD = 6;       // must match the body's padding in styles.css
-  var SWATCH_INSET = 3;   // gap between the swatch and the diagram's corner
   var SWATCH_MAX = 36;    // the swatch is a preview, not a feature
   var TRACK_MAX = 32;     // tallest the axis ramps are allowed to grow
 
@@ -482,15 +481,13 @@
     els.plot.style.width = plotW + 'px';
     els.plot.style.height = plotH + 'px';
 
-    // Park the colour in the corner of the diagram the gamut never reaches.
-    var corner = OKColor.freeCorner(activeSpace());
-    var swatch = Math.round(clamp(corner.size * plotW - 2 * SWATCH_INSET, 10, SWATCH_MAX));
+    // The swatch is pinned to the bottom left of the area above the tracks by
+    // CSS; all that is left is to keep it inside the corner of the diagram the
+    // gamut cannot reach, for the panel sizes where the two meet.
+    var swatch = Math.round(
+      clamp(OKColor.freeBottomLeft(activeSpace()) * plotW, 10, SWATCH_MAX));
     els.swatch.style.width = swatch + 'px';
     els.swatch.style.height = swatch + 'px';
-    els.swatch.style.left =
-      (corner.x === 'left' ? SWATCH_INSET : plotW - swatch - SWATCH_INSET) + 'px';
-    els.swatch.style.top =
-      (corner.y === 'top' ? SWATCH_INSET : plotH - swatch - SWATCH_INSET) + 'px';
 
     els.sliders.style.marginTop = d.rowGap + 'px';
 
@@ -512,14 +509,6 @@
       var v = OKRender.fractionToCh(f.x, f.y, plotBounds());
       setColor({ C: v.C, H: v.H });
     }, pushForeground);
-
-    // The swatch sits inside the diagram, so a press on it would otherwise
-    // bubble to the diagram and be read as a pick.  It is a readout: pressing
-    // it does nothing.  A drag that started on the diagram still tracks across
-    // it, because that listens on the document once it is under way.
-    els.swatch.addEventListener('mousedown', function (e) {
-      if (e.stopPropagation) e.stopPropagation();
-    });
 
     bindDrag(els.lTrack, function (f) {
       setColor({ L: clamp01(f.x) });

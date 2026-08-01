@@ -217,29 +217,33 @@ test('marker geometry round-trips through an off-centre window', () => {
   assert.ok(grey.y < 0.45, 'neutral sits above the middle, got ' + grey.y);
 });
 
-test('the free corner is never painted, in any space at any lightness', () => {
+test('the bottom-left corner is never painted, in any space at any lightness', () => {
   C.spaceList.forEach((sp) => {
     const bounds = C.spaceBounds(sp);
-    const corner = C.freeCorner(sp);
+    const free = C.freeBottomLeft(sp);
     const w = 80;
     const h = Math.max(8, Math.round(w * (bounds.bMax - bounds.bMin) / (bounds.aMax - bounds.aMin)));
-    const side = Math.floor(corner.size * w);
-
-    assert.ok(corner.size >= 0.18,
-      sp.id + ' should leave somewhere to put the swatch, got ' +
-      (corner.size * 100).toFixed(1) + '%');
+    const side = Math.floor(free * w);
 
     for (let li = 1; li < 20; li++) {
       const L = li / 20;
       const img = R.chPlot({ space: sp, L, bounds, width: w, height: h });
       for (let dy = 0; dy < side; dy++) {
         for (let dx = 0; dx < side; dx++) {
-          const x = corner.x === 'left' ? dx : w - 1 - dx;
-          const y = corner.y === 'top' ? dy : h - 1 - dy;
-          assert.strictEqual(img.data[(y * w + x) * 4 + 3], 0,
-            sp.id + ': ' + corner.y + '-' + corner.x + ' corner painted at L=' + L);
+          assert.strictEqual(img.data[((h - 1 - dy) * w + dx) * 4 + 3], 0,
+            sp.id + ': bottom-left corner painted at L=' + L);
         }
       }
     }
+  });
+});
+
+test('the bottom-left corner is big enough for the swatch', () => {
+  C.spaceList.forEach((sp) => {
+    // ProPhoto's imaginary primaries reach into that corner, so it is the one
+    // space that gets a small badge.  Everything else has room to spare.
+    const floor = sp.id === 'prophoto' ? 0.05 : 0.20;
+    assert.ok(C.freeBottomLeft(sp) >= floor,
+      sp.id + ' bottom-left is only ' + (C.freeBottomLeft(sp) * 100).toFixed(1) + '%');
   });
 });

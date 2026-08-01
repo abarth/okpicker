@@ -45,6 +45,7 @@ body {
    so a dock taller than the picture centres the picture instead of pooling the
    slack underneath everything. */
 .plotrow {
+  position: relative;
   flex: 1 1 auto;
   display: flex;
   flex-direction: row;
@@ -96,17 +97,17 @@ body {
   border-radius: 5px;
 }
 
-/* The current colour lives in whichever corner of the diagram the gamut never
-   reaches, so it costs no space of its own.  ui.js picks the corner and the
-   size.  It swallows clicks rather than letting them through to the diagram:
-   it is a readout, and picking a colour by clicking the thing that reports the
-   colour reads as a bug.  The cursor says as much. */
+/* The current colour sits at the left, directly above the lightness track, and
+   stays there however the diagram is placed above it.  When the diagram does
+   come down to meet it, it lands in the bottom-left corner of the gamut, which
+   is a region the hull never reaches — ui.js sizes it to stay inside that.
+   It is a readout, so it takes no clicks; the cursor says as much. */
 .swatch {
   position: absolute;
   left: 0;
-  top: 0;
-  width: 32px;
-  height: 32px;
+  bottom: 0;
+  width: 36px;
+  height: 36px;
   border: 1px solid rgba(127, 127, 127, 0.5);
   border-radius: 3px;
   background-color: #000000;

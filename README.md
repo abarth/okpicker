@@ -84,7 +84,7 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 | Top track | Lightness. The diagram is redrawn for the new slice. |
 | Middle track | Chroma, up to the largest the space can hold anywhere. |
 | Bottom track | Hue, right round the circle. |
-| Swatch | The colour you are on, which is also Photoshop's foreground colour. It sits inside the diagram, in a corner the gamut cannot reach. Pressing it does nothing — it reports the colour, it does not set one — though a drag begun on the diagram keeps tracking across it. |
+| Swatch | The colour you are on, which is also Photoshop's foreground colour. It sits at the left, just above the lightness track. Pressing it does nothing — it reports the colour, it does not set one — though a drag begun on the diagram keeps tracking across it. |
 
 Both the diagram and the tracks write straight through to the foreground
 swatch, live, while you drag.
@@ -120,13 +120,18 @@ height is above the shape — because the window has to stay put while the slice
 grows and shrinks. That is the price of a stable scale.
 
 The corners are a different matter: a rounded hull in a rectangle leaves them
-empty for good, so the swatch goes in one of them and costs no layout space at
-all. Which one is not a constant. The panel projects the whole gamut onto the
-a/b plane — the largest chroma each hue reaches at *any* lightness — and finds
-the biggest corner square that projection misses. Most RGB spaces lean away
-from blue-green and free up the bottom left (sRGB: 30% of the diagram's width),
-but ProPhoto's imaginary primaries fill that corner and vacate the top left
-instead, so the swatch moves there when the document does.
+empty for good, which is what lets the swatch overlap the diagram and cost no
+layout space at all. The swatch is pinned to the controls — bottom left, just
+above the lightness track — so it holds still while the diagram floats above
+it, and on a short panel the two meet in the diagram's bottom-left corner.
+
+To be sure that corner really is free, the panel projects the whole gamut onto
+the a/b plane — the largest chroma each hue reaches at *any* lightness — and
+bisects for the biggest bottom-left square that projection misses. Most RGB
+spaces lean away from blue-green and leave a quarter of the width clear
+(sRGB: 30%), which is more than the swatch needs at any usable panel size.
+ProPhoto is the exception: its imaginary primaries reach into that corner, so
+it gets a smaller badge.
 
 ### Things worth knowing
 

@@ -434,34 +434,31 @@
   }
 
   /**
-   * The biggest square in a corner of the plot window that the gamut never
-   * reaches, at any lightness — somewhere to park a badge without covering the
-   * picture.  Returns the corner and the square's side as a fraction of the
-   * window's width; because the window's aspect matches the gamut's, a square
-   * in chroma units is a square in pixels too.
+   * The biggest square in the bottom-left corner of the plot window that the
+   * gamut never reaches, at any lightness — how large a badge can sit there
+   * without covering the picture.  Returned as a fraction of the window's
+   * width; because the window's aspect matches the gamut's, a square in chroma
+   * units is a square in pixels too.
    *
-   * Which corner wins depends on the space: most RGB spaces lean away from the
-   * blue-green quadrant and leave the bottom left free, but ProPhoto's
-   * imaginary primaries fill that and vacate the top left instead.
+   * Most RGB spaces lean away from the blue-green quadrant and leave a quarter
+   * of the width free (sRGB: 30%). ProPhoto is the exception — its imaginary
+   * primaries reach into that corner, so it gets a small badge.
    */
-  function freeCorner(space) {
-    if (space._freeCorner) return space._freeCorner;
+  function freeBottomLeft(space) {
+    if (space._freeBottomLeft !== undefined) return space._freeBottomLeft;
     var box = spaceBounds(space);
     var proj = spaceExtent(space).projection;
     var width = box.aMax - box.aMin;
-    var height = box.bMax - box.bMin;
     // The projection is sampled every 2 degrees at 14 bisection steps, so treat
     // the hull as a little bigger than measured rather than risk an overlap.
     var safety = 1.05;
     var GRID = 12;
 
-    function clear(side, right, top) {
-      var a0 = right ? box.aMax - side : box.aMin;
-      var b0 = top ? box.bMax - side : box.bMin;
+    function clear(side) {
       for (var i = 0; i <= GRID; i++) {
-        var a = a0 + side * (i / GRID);
+        var a = box.aMin + side * (i / GRID);
         for (var j = 0; j <= GRID; j++) {
-          var b = b0 + side * (j / GRID);
+          var b = box.bMin + side * (j / GRID);
           var h = Math.atan2(b, a) / DEG;
           if (h < 0) h += 360;
           if (Math.sqrt(a * a + b * b) <= envelopeAt(proj, h) * safety) return false;
@@ -470,25 +467,20 @@
       return true;
     }
 
-    var best = { x: 'left', y: 'bottom', size: 0 };
-    [['left', 'bottom'], ['right', 'bottom'], ['left', 'top'], ['right', 'top']].forEach(function (c) {
-      var right = c[0] === 'right', top = c[1] === 'top';
-      // A smaller corner square is contained in a bigger one, so "is it clear"
-      // is monotone and bisection finds the largest that is.
-      var lo = 0, hi = Math.min(width, height);
-      if (!clear(hi, right, top)) {
-        for (var k = 0; k < 22; k++) {
-          var mid = (lo + hi) * 0.5;
-          if (clear(mid, right, top)) lo = mid; else hi = mid;
-        }
-      } else {
-        lo = hi;
+    // A smaller corner square is contained in a bigger one, so "is it clear" is
+    // monotone and bisection finds the largest that is.
+    var lo = 0, hi = Math.min(width, box.bMax - box.bMin);
+    if (clear(hi)) {
+      lo = hi;
+    } else {
+      for (var k = 0; k < 22; k++) {
+        var mid = (lo + hi) * 0.5;
+        if (clear(mid)) lo = mid; else hi = mid;
       }
-      if (lo > best.size) best = { x: c[0], y: c[1], size: lo };
-    });
+    }
 
-    space._freeCorner = { x: best.x, y: best.y, size: best.size / width };
-    return space._freeCorner;
+    space._freeBottomLeft = lo / width;
+    return space._freeBottomLeft;
   }
 
   function envelopeAt(env, hDeg) {
@@ -705,7 +697,7 @@
     spaceExtent: spaceExtent,
     spaceMaxChroma: spaceMaxChroma,
     spaceBounds: spaceBounds,
-    freeCorner: freeCorner,
+    freeBottomLeft: freeBottomLeft,
     chromaEnvelope: chromaEnvelope,
     envelopeAt: envelopeAt,
 
