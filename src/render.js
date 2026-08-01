@@ -67,44 +67,58 @@
   // ------------------------------------------------------- C/H gamut diagram
 
   /**
-   * Polar C/H slice at a fixed lightness, clipped to the shape of the target
-   * gamut.  Angle is hue (0 deg at 3 o'clock, counter-clockwise), radius is
-   * chroma scaled so that `maxC` lands exactly on the edge of the square.
+   * C/H slice at a fixed lightness, clipped to the shape of the target gamut.
+   * The picture is a window onto the OKLab a/b plane: hue is the angle about
+   * the neutral point (0 deg at 3 o'clock, counter-clockwise) and chroma the
+   * distance from it.  `bounds` says which part of that plane to show, so the
+   * caller can crop to the gamut's own extent rather than to a square drawn at
+   * the largest chroma in any direction.
    *
    * @param {object} opts
    * @param {object} opts.space     target working space
    * @param {number} opts.L         OKLab lightness, 0..1
-   * @param {number} opts.maxC      chroma at the outer edge of the plot
-   * @param {number} opts.size      output size in pixels (square)
+   * @param {object} opts.bounds    {aMin, aMax, bMin, bMax} region to paint
+   * @param {number} opts.width     output width in pixels
+   * @param {number} opts.height    output height in pixels
    * @param {Float64Array} [opts.envelope]  precomputed chroma limits per hue
    * @param {number[]} [opts.outline] RGB of the boundary stroke, 0..255
    */
   function chPlot(opts) {
     var space = opts.space;
     var L = opts.L;
-    var size = opts.size;
-    var maxC = opts.maxC;
+    var width = opts.width;
+    var height = opts.height;
+    var bounds = opts.bounds;
     var env = opts.envelope || OKColor.chromaEnvelope(space, L, opts.envelopeSamples || 720);
     var outline = opts.outline || [0, 0, 0];
-    var img = buffer(size, size);
+    var img = buffer(width, height);
     var data = img.data;
 
     var srgbM = OKColor.spaces.srgb.lmsToLinear;
     var l0 = P[0] * L, m0 = P[3] * L, s0 = P[6] * L;
-    var half = size / 2;
-    var scale = maxC / half;          // chroma units per pixel
-    var invScale = 1 / scale;         // pixels per chroma unit
-    var limit = maxC + scale;         // skip everything past the corner circle
+    var aMin = bounds.aMin, bMax = bounds.bMax;
+    var stepA = (bounds.aMax - aMin) / width;      // chroma units per pixel, across
+    var stepB = (bMax - bounds.bMin) / height;     // ...and down
+    // Anti-aliasing works in pixels; when the two axes disagree, split the
+    // difference rather than picking a side.
+    var invScale = 2 / (stepA + stepB);
+    // Nothing past the furthest corner of the window can be inside the hull.
+    var limit = Math.max(
+      Math.sqrt(bounds.aMin * bounds.aMin + bounds.bMin * bounds.bMin),
+      Math.sqrt(bounds.aMin * bounds.aMin + bMax * bMax),
+      Math.sqrt(bounds.aMax * bounds.aMax + bounds.bMin * bounds.bMin),
+      Math.sqrt(bounds.aMax * bounds.aMax + bMax * bMax)
+    ) + Math.max(stepA, stepB);
     var limitSq = limit * limit;
     var rgb = [0, 0, 0];
     var envN = env.length - 1;
     var envStep = envN / 360;
 
-    for (var y = 0; y < size; y++) {
-      var b = (half - (y + 0.5)) * scale;
-      var rowBase = y * size * 4;
-      for (var x = 0; x < size; x++) {
-        var a = (x + 0.5 - half) * scale;
+    for (var y = 0; y < height; y++) {
+      var b = bMax - (y + 0.5) * stepB;
+      var rowBase = y * width * 4;
+      for (var x = 0; x < width; x++) {
+        var a = aMin + (x + 0.5) * stepA;
         var cSq = a * a + b * b;
         if (cSq > limitSq) continue;
         var c = Math.sqrt(cSq);
@@ -241,19 +255,23 @@
   }
 
   // ------------------------------------------------------- plot <-> geometry
-  // The plot fills its square exactly: chroma `maxC` maps to the half-width,
-  // so a marker at (C, H) sits at these fractions of the element.
+  // The plot window maps `bounds` onto the element exactly, so a colour at
+  // (C, H) sits at these fractions of it and back again.
 
-  function markerFraction(C, H, maxC) {
-    var r = maxC > 0 ? C / maxC : 0;
+  function markerFraction(C, H, bounds) {
     var h = H * DEG;
-    return { x: 0.5 + r * 0.5 * Math.cos(h), y: 0.5 - r * 0.5 * Math.sin(h) };
+    var a = C * Math.cos(h), b = C * Math.sin(h);
+    return {
+      x: (a - bounds.aMin) / (bounds.aMax - bounds.aMin),
+      y: (bounds.bMax - b) / (bounds.bMax - bounds.bMin)
+    };
   }
 
-  function fractionToCh(fx, fy, maxC) {
-    var dx = (fx - 0.5) * 2, dy = (0.5 - fy) * 2;
-    var C = Math.sqrt(dx * dx + dy * dy) * maxC;
-    var H = Math.atan2(dy, dx) / DEG;
+  function fractionToCh(fx, fy, bounds) {
+    var a = bounds.aMin + fx * (bounds.aMax - bounds.aMin);
+    var b = bounds.bMax - fy * (bounds.bMax - bounds.bMin);
+    var C = Math.sqrt(a * a + b * b);
+    var H = Math.atan2(b, a) / DEG;
     if (H < 0) H += 360;
     return { C: C, H: H };
   }

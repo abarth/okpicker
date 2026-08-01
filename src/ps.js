@@ -4,7 +4,7 @@
  *
  * Every entry point degrades gracefully when the host is missing, so the same
  * files can be opened in a browser (or required from node) while working on the
- * UI.  `available()` tells the panel which controls to disable.
+ * UI.  `available()` tells the panel whether there is anything to sync with.
  */
 (function (root, factory) {
   var api = factory();
@@ -196,20 +196,6 @@
     });
   }
 
-  // --------------------------------------------------------------- clipboard
-
-  async function copyText(text) {
-    if (uxp && uxp.clipboard && uxp.clipboard.setContent) {
-      await uxp.clipboard.setContent({ 'text/plain': text });
-      return true;
-    }
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-    return false;
-  }
-
   /** Register the panel entry point so Photoshop can drive its lifecycle. */
   function registerPanel(id, handlers) {
     if (!uxp || !uxp.entrypoints || !uxp.entrypoints.setup) return false;
@@ -231,7 +217,6 @@
     getColor: getColor,
     onDocumentChange: onDocumentChange,
     onSwatchChange: onSwatchChange,
-    copyText: copyText,
     registerPanel: registerPanel
   };
 });

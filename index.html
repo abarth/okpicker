@@ -2,101 +2,38 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>OKLCH Picker</title>
+  <title>OKLCH</title>
   <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
   <div id="root">
 
-    <div class="docbar">
-      <div class="docbar-main">
-        <span id="docName" class="docname">No document</span>
-        <span id="docProfile" class="chip">—</span>
-      </div>
-      <button id="refreshBtn" class="icon-btn" title="Re-read the document colour profile">&#8635;</button>
-    </div>
-
-    <div class="plotrow">
+    <div id="plotrow" class="plotrow">
       <div id="plot" class="plot">
         <div id="plotSurface" class="surface"></div>
         <div id="plotMarker" class="marker"><i></i></div>
       </div>
-      <div id="lRamp" class="vramp">
-        <div id="lRampSurface" class="surface"></div>
-        <div id="lRampThumb" class="vthumb"></div>
+      <!-- A sibling of the diagram, not a child: it belongs to the controls and
+           stays put when the diagram floats.  Being a sibling is also what stops
+           a press on it reaching the diagram's handler. -->
+      <div id="swatch" class="swatch"></div>
+    </div>
+
+    <div id="sliders" class="sliders">
+      <div id="lTrack" class="track">
+        <div id="lTrackSurface" class="surface"></div>
+        <div id="lThumb" class="thumb"></div>
+      </div>
+      <div id="cTrack" class="track">
+        <div id="cTrackSurface" class="surface"></div>
+        <div id="cThumb" class="thumb"></div>
+      </div>
+      <div id="hTrack" class="track">
+        <div id="hTrackSurface" class="surface"></div>
+        <div id="hThumb" class="thumb"></div>
       </div>
     </div>
 
-    <div class="swatchrow">
-      <div id="swatch" class="swatch"><span id="swatchOut" class="oog">!</span></div>
-      <div class="readout">
-        <div class="readout-line">
-          <input id="hexInput" class="hex" type="text" spellcheck="false" value="#000000">
-          <button id="copyHexBtn" class="mini-btn" title="Copy hex">copy</button>
-        </div>
-        <div class="readout-line">
-          <span id="oklchOut" class="css">oklch(0% 0 0)</span>
-          <button id="copyCssBtn" class="mini-btn" title="Copy CSS oklch()">copy</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="sliders">
-      <div class="slider" data-axis="l">
-        <div class="slider-head">
-          <label>Lightness</label>
-          <input id="lValue" class="value" type="text" spellcheck="false">
-          <span class="unit">%</span>
-        </div>
-        <div id="lTrack" class="track">
-          <div id="lTrackSurface" class="surface"></div>
-          <div id="lThumb" class="thumb"></div>
-        </div>
-      </div>
-
-      <div class="slider" data-axis="c">
-        <div class="slider-head">
-          <label>Chroma</label>
-          <input id="cValue" class="value" type="text" spellcheck="false">
-          <span id="cLimit" class="unit">/ 0.000</span>
-        </div>
-        <div id="cTrack" class="track">
-          <div id="cTrackSurface" class="surface"></div>
-          <div id="cThumb" class="thumb"></div>
-        </div>
-      </div>
-
-      <div class="slider" data-axis="h">
-        <div class="slider-head">
-          <label>Hue</label>
-          <input id="hValue" class="value" type="text" spellcheck="false">
-          <span class="unit">&deg;</span>
-        </div>
-        <div id="hTrack" class="track">
-          <div id="hTrackSurface" class="surface"></div>
-          <div id="hThumb" class="thumb"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="options">
-      <div class="option-row">
-        <label for="targetSelect">Gamut</label>
-        <select id="targetSelect"></select>
-      </div>
-      <div class="option-row checks">
-        <label class="check"><input id="clampCheck" type="checkbox" checked> Keep chroma in gamut</label>
-        <label class="check"><input id="autoApplyCheck" type="checkbox"> Auto-apply</label>
-      </div>
-    </div>
-
-    <div class="actions">
-      <button id="fgBtn" class="btn primary">Foreground</button>
-      <button id="bgBtn" class="btn">Background</button>
-      <button id="pickBtn" class="btn" title="Read the current foreground colour into the picker">Pick up</button>
-    </div>
-
-    <div id="status" class="status"></div>
   </div>
 
   <script src="src/color.js"></script>

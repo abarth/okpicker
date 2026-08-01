@@ -356,19 +356,66 @@
     return a;
   }
 
-  /** Biggest chroma anywhere in the space; used to scale the C axis. Cached. */
-  function spaceMaxChroma(space) {
-    if (space._maxChroma !== undefined) return space._maxChroma;
-    var best = 0;
+  /**
+   * How far the space reaches, swept over every lightness and hue: the biggest
+   * chroma anywhere in it, and the extent of the whole gamut body projected
+   * onto the OKLab a/b plane.  One scan answers both; cached on the space.
+   */
+  function spaceExtent(space) {
+    if (space._extent) return space._extent;
+    var best = 0, aMin = 0, aMax = 0, bMin = 0, bMax = 0;
+    // The gamut's shadow on the a/b plane: the largest chroma each hue reaches
+    // at *any* lightness.  Star-shaped in chroma like a single slice, because a
+    // hue that can hold some chroma at one lightness can hold less at the same
+    // one, so the whole radius up to the limit is covered.
+    var samples = 180;
+    var projection = new Float64Array(samples + 1);
     for (var li = 1; li < 100; li++) {
       var L = li / 100;
-      for (var hi2 = 0; hi2 < 360; hi2 += 2) {
-        var c = maxChroma(space, L, hi2, 14);
+      for (var si = 0; si < samples; si++) {
+        var h = si * 2;
+        var c = maxChroma(space, L, h, 14);
         if (c > best) best = c;
+        if (c > projection[si]) projection[si] = c;
+        var rad = h * DEG;
+        var a = c * Math.cos(rad), b = c * Math.sin(rad);
+        if (a < aMin) aMin = a;
+        if (a > aMax) aMax = a;
+        if (b < bMin) bMin = b;
+        if (b > bMax) bMax = b;
       }
     }
-    space._maxChroma = best;
-    return best;
+    projection[samples] = projection[0];
+    space._extent = {
+      maxChroma: best, aMin: aMin, aMax: aMax, bMin: bMin, bMax: bMax,
+      projection: projection
+    };
+    return space._extent;
+  }
+
+  /** Biggest chroma anywhere in the space; used to scale the C axis. */
+  function spaceMaxChroma(space) {
+    return spaceExtent(space).maxChroma;
+  }
+
+  /**
+   * The a/b rectangle to draw a C/H diagram in: the gamut's own extent plus a
+   * little headroom, so the hull fills the picture instead of floating inside a
+   * square drawn to the largest chroma in any direction.  The neutral axis is
+   * always inside the box but is not generally at its centre — no RGB space
+   * reaches as far towards yellow as it does towards blue.
+   */
+  function spaceBounds(space) {
+    if (space._boundsBox) return space._boundsBox;
+    var e = spaceExtent(space);
+    var pad = 0.02 * Math.max(e.aMax - e.aMin, e.bMax - e.bMin);
+    space._boundsBox = {
+      aMin: Math.floor((e.aMin - pad) * 200) / 200,
+      aMax: Math.ceil((e.aMax + pad) * 200) / 200,
+      bMin: Math.floor((e.bMin - pad) * 200) / 200,
+      bMax: Math.ceil((e.bMax + pad) * 200) / 200
+    };
+    return space._boundsBox;
   }
 
   /**
@@ -384,6 +431,56 @@
     }
     out[samples] = out[0];
     return out;
+  }
+
+  /**
+   * The biggest square in the bottom-left corner of the plot window that the
+   * gamut never reaches, at any lightness — how large a badge can sit there
+   * without covering the picture.  Returned as a fraction of the window's
+   * width; because the window's aspect matches the gamut's, a square in chroma
+   * units is a square in pixels too.
+   *
+   * Most RGB spaces lean away from the blue-green quadrant and leave a quarter
+   * of the width free (sRGB: 30%). ProPhoto is the exception — its imaginary
+   * primaries reach into that corner, so it gets a small badge.
+   */
+  function freeBottomLeft(space) {
+    if (space._freeBottomLeft !== undefined) return space._freeBottomLeft;
+    var box = spaceBounds(space);
+    var proj = spaceExtent(space).projection;
+    var width = box.aMax - box.aMin;
+    // The projection is sampled every 2 degrees at 14 bisection steps, so treat
+    // the hull as a little bigger than measured rather than risk an overlap.
+    var safety = 1.05;
+    var GRID = 12;
+
+    function clear(side) {
+      for (var i = 0; i <= GRID; i++) {
+        var a = box.aMin + side * (i / GRID);
+        for (var j = 0; j <= GRID; j++) {
+          var b = box.bMin + side * (j / GRID);
+          var h = Math.atan2(b, a) / DEG;
+          if (h < 0) h += 360;
+          if (Math.sqrt(a * a + b * b) <= envelopeAt(proj, h) * safety) return false;
+        }
+      }
+      return true;
+    }
+
+    // A smaller corner square is contained in a bigger one, so "is it clear" is
+    // monotone and bisection finds the largest that is.
+    var lo = 0, hi = Math.min(width, box.bMax - box.bMin);
+    if (clear(hi)) {
+      lo = hi;
+    } else {
+      for (var k = 0; k < 22; k++) {
+        var mid = (lo + hi) * 0.5;
+        if (clear(mid)) lo = mid; else hi = mid;
+      }
+    }
+
+    space._freeBottomLeft = lo / width;
+    return space._freeBottomLeft;
   }
 
   function envelopeAt(env, hDeg) {
@@ -597,7 +694,10 @@
     inGamut: inGamut,
     inGamutLinear: inGamutLinear,
     maxChroma: maxChroma,
+    spaceExtent: spaceExtent,
     spaceMaxChroma: spaceMaxChroma,
+    spaceBounds: spaceBounds,
+    freeBottomLeft: freeBottomLeft,
     chromaEnvelope: chromaEnvelope,
     envelopeAt: envelopeAt,
 

@@ -265,3 +265,39 @@ test('CSS oklch() formatting round-trips', () => {
   assert.deepStrictEqual(C.parseOklch('oklch(50% 0.1 120deg)').map((v) => +v.toFixed(4)), [0.5, 0.1, 120]);
   assert.strictEqual(C.parseOklch('rgb(1 2 3)'), null);
 });
+
+test('the plot bounds contain the gamut and hug it on every side', () => {
+  C.spaceList.forEach((sp) => {
+    const b = C.spaceBounds(sp);
+    const e = C.spaceExtent(sp);
+    const w = b.aMax - b.aMin;
+    const h = b.bMax - b.bMin;
+
+    assert.ok(b.aMin <= e.aMin && b.aMax >= e.aMax, sp.id + ' contains the hull in a');
+    assert.ok(b.bMin <= e.bMin && b.bMax >= e.bMax, sp.id + ' contains the hull in b');
+
+    assert.ok((e.aMin - b.aMin) / w < 0.06, sp.id + ' slack on the left');
+    assert.ok((b.aMax - e.aMax) / w < 0.06, sp.id + ' slack on the right');
+    assert.ok((e.bMin - b.bMin) / h < 0.06, sp.id + ' slack at the bottom');
+    assert.ok((b.bMax - e.bMax) / h < 0.06, sp.id + ' slack at the top');
+
+    // The neutral axis has to be somewhere inside the picture.
+    assert.ok(b.aMin < 0 && b.aMax > 0 && b.bMin < 0 && b.bMax > 0, sp.id + ' holds the neutral');
+  });
+});
+
+test('the plot bounds beat a square drawn to the largest chroma', () => {
+  const srgb = C.spaces.srgb;
+  const maxC = C.spaceMaxChroma(srgb);
+  const e = C.spaceExtent(srgb);
+  const b = C.spaceBounds(srgb);
+
+  // The square wasted a fifth of its height: sRGB reaches much further towards
+  // blue than towards yellow, so the top of the square was never painted.
+  assert.ok((maxC - e.bMax) / (2 * maxC) > 0.15,
+    'expected a wide dead band above the hull, got ' + ((maxC - e.bMax) / (2 * maxC)));
+
+  const cropped = (b.aMax - b.aMin) * (b.bMax - b.bMin);
+  assert.ok(cropped < 0.8 * 4 * maxC * maxC,
+    'cropped window should be much smaller, got ' + (cropped / (4 * maxC * maxC)));
+});

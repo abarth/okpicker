@@ -1,4 +1,4 @@
-# OKLCH Picker for Photoshop
+# OKLCH — a colour picker for Photoshop
 
 A UXP panel for Adobe Photoshop that picks colours in **OKLCH** — the perceptual
 lightness / chroma / hue model — and shows you exactly which of those colours
@@ -8,26 +8,37 @@ fit inside the current document's colour space.
 
 ## What it gives you
 
+- **It *is* the foreground colour.** The panel is bound to Photoshop's
+  foreground swatch in both directions: move anything in the picker and the
+  foreground changes as you drag, change the foreground anywhere else in
+  Photoshop and the picker follows. There is nothing to apply and nothing to
+  pick up.
 - **A C/H diagram shaped like the gamut.** Not a square, not a colour wheel: at
   the current lightness the panel solves for the maximum chroma at every hue and
   paints only the colours the document can actually hold. The silhouette *is*
   the gamut slice, so you can see at a glance that (say) sRGB has plenty of
-  chroma in the reds and almost none in the cyans at high lightness.
-- **A lightness slider next to the diagram**, so you can sweep L and watch the
-  reachable shape grow and shrink.
-- **A separate slider for each axis** — L, C and H — each painted as a live ramp
-  of the colours you would get by moving it, with the out-of-gamut stretch
-  dimmed and hatched.
-- **Click or drag anywhere**: the diagram and all four sliders respond to a
-  click, a drag, the number fields (arrow keys nudge, ⇧ + arrow nudges by ten),
-  or a hex value.
+  chroma in the reds and almost none in the cyans at high lightness. The picture
+  is cropped to the gamut's own extent, so the shape fills it instead of
+  floating inside a square.
+- **A track for each axis** — L, C and H — each painted as a live ramp of the
+  colours you would get by moving it, with the out-of-gamut stretch dimmed and
+  hatched.
+- **Chroma held on the gamut hull.** Moving lightness or hue slides the colour
+  along the edge of what the document can hold rather than letting it drift
+  outside, so what you see is always what you get.
 - **Gamut awareness that follows the document.** The panel reads the frontmost
   document's ICC profile and reshapes itself for sRGB, Display P3,
   Adobe RGB (1998), ProPhoto, Rec. 2020, Wide Gamut RGB, Apple RGB,
-  ColorMatch, eciRGB v2 or Rec. 709. You can also pin it to a space by hand.
-- **Colour-managed hand-off.** Applying a colour sends it to Photoshop as
-  D50 Lab, so the swatch matches the colour you picked no matter what the
-  document's working space is.
+  ColorMatch, eciRGB v2 or Rec. 709 — and re-reads it by itself whenever the
+  document, its profile or its mode changes.
+- **Colour-managed hand-off.** The colour goes to Photoshop as D50 Lab, so the
+  swatch matches the colour you picked no matter what the document's working
+  space is.
+- **Fits the space it is given.** Everything is sized to the panel, so the whole
+  picker stays reachable in a narrow Photoshop side panel without scrolling. The
+  tracks sit on the bottom edge and the diagram centres itself in whatever is
+  left, so a tall dock gets a balanced picture rather than a pool of empty space
+  under the controls.
 
 ## Requirements
 
@@ -43,7 +54,7 @@ fit inside the current document's colour space.
 1. Install the [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)
    and start Photoshop.
 2. In UDT, **Add Plugin…** and select this repository's `manifest.json`.
-3. Press **Load**. The panel appears under **Plugins → OKLCH Picker**.
+3. Press **Load**. The panel appears under **Plugins → OKLCH**.
 
 `Load` again after editing a file, or use UDT's **Watch** to reload on save.
 
@@ -69,19 +80,14 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 
 | Control | What it does |
 | --- | --- |
-| Diagram | Click or drag to set chroma (distance from the centre) and hue (angle, 0° at 3 o'clock, counter-clockwise). |
-| Strip beside the diagram | Lightness; the diagram is redrawn for the new slice. |
-| L / C / H sliders | The same three axes, one at a time. |
-| Hex field | Type a hex value *in document space* to load it. |
-| **Gamut** | `Document profile` follows the open document; pick a space to override. |
-| **Keep chroma in gamut** | Holds the colour on the gamut hull as you move L and H instead of letting it drift outside. Turn it off to work with out-of-gamut values (the swatch then shows a `!` and the preview is the clipped colour). |
-| **Auto-apply** | Sends the colour to the foreground swatch whenever you finish a drag or commit a field. |
-| **Foreground** / **Background** | Apply once, on demand. |
-| **Pick up** | Load Photoshop's current foreground colour into the picker. |
-| Panel flyout menu | Copy the CSS `oklch()` string or the hex value, pick up the foreground colour, reset the picker. |
+| Diagram | Click or drag to set chroma (distance from the neutral point) and hue (angle, 0° at 3 o'clock, counter-clockwise). |
+| Top track | Lightness. The diagram is redrawn for the new slice. |
+| Middle track | Chroma, up to the largest the space can hold anywhere. |
+| Bottom track | Hue, right round the circle. |
+| Swatch | The colour you are on, which is also Photoshop's foreground colour. It sits at the left, just above the lightness track. Pressing it does nothing — it reports the colour, it does not set one — though a drag begun on the diagram keeps tracking across it. |
 
-The chroma field shows `value / limit`, where the limit is the largest chroma
-this lightness and hue can hold in the target space.
+Both the diagram and the tracks write straight through to the foreground
+swatch, live, while you drag.
 
 ## How the gamut is computed
 
@@ -94,28 +100,58 @@ in the gamut is one matrix multiply and three range checks.
 The gamut body is star-shaped in chroma at a fixed L and H, so the maximum
 chroma is found by bisection (~20 iterations, exact to ~10⁻⁷). The diagram
 samples that limit at 720 hues and interpolates, which also gives the outline
-its anti-aliased edge. While you drag, the panel repaints at reduced resolution
-and does a full-quality pass once you stop.
+its anti-aliased edge. A worst-case repaint — the lightness axis moving, so the
+diagram and all three ramps are stale at once — costs around ten milliseconds,
+so every frame is drawn at full resolution and there is no draft pass to flicker
+through.
 
-The chroma axis is scaled per space to that space's overall maximum chroma, so
-the scale does not shift under you as you move the lightness slider.
+The scale is fixed per space rather than per slice, so it does not shift under
+you as you move lightness. The diagram is a window onto the OKLab a/b plane, and
+that window is the space's whole gamut swept over every lightness and hue, plus
+2% headroom — not a square drawn to the largest chroma in any direction. The
+difference matters because the two are nothing like the same shape: sRGB reaches
+`b = −0.31` towards blue but only `+0.20` towards yellow, so the square left its
+top fifth permanently empty. Cropping to the real extent cuts the never-painted
+band from 21.5% of the height to 3%, and shows the hull 1.2× larger in the same
+number of pixels.
+
+A single slice still does not fill the window — at L = 0.57 about 17% of the
+height is above the shape — because the window has to stay put while the slice
+grows and shrinks. That is the price of a stable scale.
+
+The corners are a different matter: a rounded hull in a rectangle leaves them
+empty for good, which is what lets the swatch overlap the diagram and cost no
+layout space at all. The swatch is pinned to the controls — bottom left, just
+above the lightness track — so it holds still while the diagram floats above
+it, and on a short panel the two meet in the diagram's bottom-left corner.
+
+To be sure that corner really is free, the panel projects the whole gamut onto
+the a/b plane — the largest chroma each hue reaches at *any* lightness — and
+bisects for the biggest bottom-left square that projection misses. Most RGB
+spaces lean away from blue-green and leave a quarter of the width clear
+(sRGB: 30%), which is more than the swatch needs at any usable panel size.
+ProPhoto is the exception: its imaginary primaries reach into that corner, so
+it gets a smaller badge.
 
 ### Things worth knowing
 
 - **The panel is not colour managed.** Photoshop paints UXP panels as sRGB, so
-  colours the document can hold but sRGB cannot are drawn clipped. The *shape*
-  is always the document's true gamut; the fill is the closest sRGB can show.
-  The hex field reports document values, not screen values.
-- **CMYK, Grayscale, Lab, Indexed and Duotone documents** fall back to sRGB for
-  the diagram, and the profile chip says so. Their gamuts are defined by an ICC
-  profile that a UXP plugin cannot evaluate, so a shape drawn for them would be
-  a guess. The colour you apply is still sent as Lab and converted by
-  Photoshop, so applying works normally.
-- **Unrecognised RGB profiles** fall back to sRGB with a warning on the chip.
-  Use the **Gamut** menu to pick the closest match by hand.
-- Applying uses `labColor`, which Photoshop converts into the document's space.
-  If that call fails the panel retries with the document's RGB values and says
-  so in the status line.
+  colours the document can hold but sRGB cannot are drawn clipped — in the
+  diagram, in the ramps and in the swatch alike. The *shape* is always the
+  document's true gamut; the fill is the closest sRGB can show.
+- **CMYK, Grayscale, Lab, Indexed and Duotone documents**, and RGB documents
+  with a profile the panel does not recognise, fall back to sRGB for the
+  diagram. Their gamuts are defined by an ICC profile that a UXP plugin cannot
+  evaluate, so a shape drawn for them would be a guess. The colour itself is
+  still sent as Lab and converted by Photoshop, so the foreground swatch is
+  correct either way.
+- Writing the colour uses `labColor`, which Photoshop converts into the
+  document's space. If that call fails the panel retries with the document's
+  RGB values.
+- Writes while you drag **coalesce**: at most one is ever in flight, and the
+  next one carries whatever the state has become by then. The picker ignores
+  the notification its own write comes back as, so the two directions of the
+  binding cannot chase each other.
 
 ## Development
 
@@ -125,8 +161,10 @@ npm run icons   # regenerate icons/ — they are rendered by the panel's own cod
 ```
 
 `index.html` opens directly in a browser for UI work: the Photoshop bridge
-degrades to "Preview mode" and the apply buttons disable themselves, but the
-diagram, the sliders and every readout behave exactly as they do in the panel.
+degrades to a no-op, so the panel starts on its default colour and writes go
+nowhere, but the diagram, the tracks and the swatch behave exactly as they do
+in Photoshop — including the way the layout compacts itself as you resize the
+window.
 
 ### Layout
 
@@ -137,8 +175,8 @@ diagram, the sliders and every readout behave exactly as they do in the panel.
 | `src/color.js` | OKLab/OKLCH, working-space matrices, transfer functions, gamut search, Lab, profile-name matching. No DOM. |
 | `src/render.js` | Pixel generators for the diagram and the ramps. |
 | `src/png.js` | RGBA → PNG → data URI, for hosts without a working canvas. |
-| `src/ps.js` | Photoshop bridge: document profile, applying colours, notifications, clipboard. |
-| `src/ui.js` | Panel state, repaint scheduling, event wiring. |
+| `src/ps.js` | Photoshop bridge: document profile, reading and writing swatches, notifications. |
+| `src/ui.js` | Panel state, the foreground binding, repaint scheduling, layout and event wiring. |
 | `test/` | Unit tests for everything above the DOM. |
 
 The renderer writes into an RGBA buffer and the panel decides where it goes: it
