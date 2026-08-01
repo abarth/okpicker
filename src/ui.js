@@ -566,23 +566,13 @@
     }
 
     if (typeof ResizeObserver === 'function') {
-      try { new ResizeObserver(onResize).observe(els.root); } catch (e) { /* fall back below */ }
+      try { new ResizeObserver(onResize).observe(els.root); } catch (e) { /* the event below is the fallback */ }
     }
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('resize', onResize);
     }
-
-    // Fitting the available space is the whole point of the layout, so do not
-    // rely on getting a resize event: two measurements twice a second is
-    // nothing, and it guarantees the panel is never taller than its dock.
-    var lastW = rootWidth(), lastH = viewportHeight();
-    setInterval(function () {
-      var w = rootWidth(), h = viewportHeight();
-      if (w === lastW && h === lastH) return;
-      lastW = w;
-      lastH = h;
-      relayout();
-    }, 500);
+    // Should a host ever fail to report a resize, the panel's `show` handler
+    // re-runs the layout, so reopening it is enough to recover.
   }
 
   function init() {
