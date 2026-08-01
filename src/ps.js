@@ -4,7 +4,7 @@
  *
  * Every entry point degrades gracefully when the host is missing, so the same
  * files can be opened in a browser (or required from node) while working on the
- * UI.  `available()` tells the panel which controls to disable.
+ * UI.  `available()` tells the panel whether there is anything to sync with.
  */
 (function (root, factory) {
   var api = factory();

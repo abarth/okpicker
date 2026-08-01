@@ -364,12 +364,20 @@
   function spaceExtent(space) {
     if (space._extent) return space._extent;
     var best = 0, aMin = 0, aMax = 0, bMin = 0, bMax = 0;
+    // The gamut's shadow on the a/b plane: the largest chroma each hue reaches
+    // at *any* lightness.  Star-shaped in chroma like a single slice, because a
+    // hue that can hold some chroma at one lightness can hold less at the same
+    // one, so the whole radius up to the limit is covered.
+    var samples = 180;
+    var projection = new Float64Array(samples + 1);
     for (var li = 1; li < 100; li++) {
       var L = li / 100;
-      for (var hi2 = 0; hi2 < 360; hi2 += 2) {
-        var c = maxChroma(space, L, hi2, 14);
+      for (var si = 0; si < samples; si++) {
+        var h = si * 2;
+        var c = maxChroma(space, L, h, 14);
         if (c > best) best = c;
-        var rad = hi2 * DEG;
+        if (c > projection[si]) projection[si] = c;
+        var rad = h * DEG;
         var a = c * Math.cos(rad), b = c * Math.sin(rad);
         if (a < aMin) aMin = a;
         if (a > aMax) aMax = a;
@@ -377,7 +385,11 @@
         if (b > bMax) bMax = b;
       }
     }
-    space._extent = { maxChroma: best, aMin: aMin, aMax: aMax, bMin: bMin, bMax: bMax };
+    projection[samples] = projection[0];
+    space._extent = {
+      maxChroma: best, aMin: aMin, aMax: aMax, bMin: bMin, bMax: bMax,
+      projection: projection
+    };
     return space._extent;
   }
 
@@ -419,6 +431,64 @@
     }
     out[samples] = out[0];
     return out;
+  }
+
+  /**
+   * The biggest square in a corner of the plot window that the gamut never
+   * reaches, at any lightness — somewhere to park a badge without covering the
+   * picture.  Returns the corner and the square's side as a fraction of the
+   * window's width; because the window's aspect matches the gamut's, a square
+   * in chroma units is a square in pixels too.
+   *
+   * Which corner wins depends on the space: most RGB spaces lean away from the
+   * blue-green quadrant and leave the bottom left free, but ProPhoto's
+   * imaginary primaries fill that and vacate the top left instead.
+   */
+  function freeCorner(space) {
+    if (space._freeCorner) return space._freeCorner;
+    var box = spaceBounds(space);
+    var proj = spaceExtent(space).projection;
+    var width = box.aMax - box.aMin;
+    var height = box.bMax - box.bMin;
+    // The projection is sampled every 2 degrees at 14 bisection steps, so treat
+    // the hull as a little bigger than measured rather than risk an overlap.
+    var safety = 1.05;
+    var GRID = 12;
+
+    function clear(side, right, top) {
+      var a0 = right ? box.aMax - side : box.aMin;
+      var b0 = top ? box.bMax - side : box.bMin;
+      for (var i = 0; i <= GRID; i++) {
+        var a = a0 + side * (i / GRID);
+        for (var j = 0; j <= GRID; j++) {
+          var b = b0 + side * (j / GRID);
+          var h = Math.atan2(b, a) / DEG;
+          if (h < 0) h += 360;
+          if (Math.sqrt(a * a + b * b) <= envelopeAt(proj, h) * safety) return false;
+        }
+      }
+      return true;
+    }
+
+    var best = { x: 'left', y: 'bottom', size: 0 };
+    [['left', 'bottom'], ['right', 'bottom'], ['left', 'top'], ['right', 'top']].forEach(function (c) {
+      var right = c[0] === 'right', top = c[1] === 'top';
+      // A smaller corner square is contained in a bigger one, so "is it clear"
+      // is monotone and bisection finds the largest that is.
+      var lo = 0, hi = Math.min(width, height);
+      if (!clear(hi, right, top)) {
+        for (var k = 0; k < 22; k++) {
+          var mid = (lo + hi) * 0.5;
+          if (clear(mid, right, top)) lo = mid; else hi = mid;
+        }
+      } else {
+        lo = hi;
+      }
+      if (lo > best.size) best = { x: c[0], y: c[1], size: lo };
+    });
+
+    space._freeCorner = { x: best.x, y: best.y, size: best.size / width };
+    return space._freeCorner;
   }
 
   function envelopeAt(env, hDeg) {
@@ -635,6 +705,7 @@
     spaceExtent: spaceExtent,
     spaceMaxChroma: spaceMaxChroma,
     spaceBounds: spaceBounds,
+    freeCorner: freeCorner,
     chromaEnvelope: chromaEnvelope,
     envelopeAt: envelopeAt,
 

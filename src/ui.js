@@ -408,8 +408,8 @@
   // chrome steps down through progressively tighter metrics.
 
   var BODY_PAD = 6;       // must match the body's padding in styles.css
-  var SWATCH_GAP = 6;     // ...and .swatch's right margin
-  var SWATCH_MAX = 40;    // the swatch is a preview, not a feature
+  var SWATCH_INSET = 3;   // gap between the swatch and the diagram's corner
+  var SWATCH_MAX = 36;    // the swatch is a preview, not a feature
   var TRACK_MAX = 32;     // tallest the axis ramps are allowed to grow
 
   var DENSITY = [
@@ -475,9 +475,6 @@
       if (grow > 0) track += grow;
     }
 
-    var stack = 3 * track + 2 * d.trackGap;
-    var swatch = Math.min(stack, SWATCH_MAX);
-
     var changed = plotW !== layoutSizes.plotW || plotH !== layoutSizes.plotH ||
       track !== layoutSizes.track;
     layoutSizes = { plotW: plotW, plotH: plotH, aspect: aspect, track: track };
@@ -485,10 +482,17 @@
     els.plot.style.width = plotW + 'px';
     els.plot.style.height = plotH + 'px';
 
-    els.controls.style.marginTop = d.rowGap + 'px';
+    // Park the colour in the corner of the diagram the gamut never reaches.
+    var corner = OKColor.freeCorner(activeSpace());
+    var swatch = Math.round(clamp(corner.size * plotW - 2 * SWATCH_INSET, 10, SWATCH_MAX));
     els.swatch.style.width = swatch + 'px';
     els.swatch.style.height = swatch + 'px';
-    els.swatch.style.marginRight = SWATCH_GAP + 'px';
+    els.swatch.style.left =
+      (corner.x === 'left' ? SWATCH_INSET : plotW - swatch - SWATCH_INSET) + 'px';
+    els.swatch.style.top =
+      (corner.y === 'top' ? SWATCH_INSET : plotH - swatch - SWATCH_INSET) + 'px';
+
+    els.sliders.style.marginTop = d.rowGap + 'px';
 
     for (var t = 0; t < els.tracks.length; t++) {
       els.tracks[t].style.height = track + 'px';
@@ -545,8 +549,8 @@
       root: $('root'),
       plot: $('plot'),
       plotMarker: $('plotMarker'),
-      controls: $('controls'),
       swatch: $('swatch'),
+      sliders: $('sliders'),
       lTrack: $('lTrack'), lThumb: $('lThumb'),
       cTrack: $('cTrack'), cThumb: $('cThumb'),
       hTrack: $('hTrack'), hThumb: $('hThumb')

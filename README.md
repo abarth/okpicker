@@ -1,4 +1,4 @@
-# OKLCH Picker for Photoshop
+# OKLCH — a colour picker for Photoshop
 
 A UXP panel for Adobe Photoshop that picks colours in **OKLCH** — the perceptual
 lightness / chroma / hue model — and shows you exactly which of those colours
@@ -51,7 +51,7 @@ fit inside the current document's colour space.
 1. Install the [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)
    and start Photoshop.
 2. In UDT, **Add Plugin…** and select this repository's `manifest.json`.
-3. Press **Load**. The panel appears under **Plugins → OKLCH Picker**.
+3. Press **Load**. The panel appears under **Plugins → OKLCH**.
 
 `Load` again after editing a file, or use UDT's **Watch** to reload on save.
 
@@ -81,7 +81,7 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 | Top track | Lightness. The diagram is redrawn for the new slice. |
 | Middle track | Chroma, up to the largest the space can hold anywhere. |
 | Bottom track | Hue, right round the circle. |
-| Swatch | The colour you are on, which is also Photoshop's foreground colour. |
+| Swatch | The colour you are on, which is also Photoshop's foreground colour. It sits inside the diagram, in a corner the gamut cannot reach, and drags pass straight through it. |
 
 Both the diagram and the tracks write straight through to the foreground
 swatch, live, while you drag.
@@ -115,6 +115,15 @@ number of pixels.
 A single slice still does not fill the window — at L = 0.57 about 17% of the
 height is above the shape — because the window has to stay put while the slice
 grows and shrinks. That is the price of a stable scale.
+
+The corners are a different matter: a rounded hull in a rectangle leaves them
+empty for good, so the swatch goes in one of them and costs no layout space at
+all. Which one is not a constant. The panel projects the whole gamut onto the
+a/b plane — the largest chroma each hue reaches at *any* lightness — and finds
+the biggest corner square that projection misses. Most RGB spaces lean away
+from blue-green and free up the bottom left (sRGB: 30% of the diagram's width),
+but ProPhoto's imaginary primaries fill that corner and vacate the top left
+instead, so the swatch moves there when the document does.
 
 ### Things worth knowing
 
