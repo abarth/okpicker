@@ -17,12 +17,12 @@ fit inside the current document's colour space.
   the current lightness the panel solves for the maximum chroma at every hue and
   paints only the colours the document can actually hold. The silhouette *is*
   the gamut slice, so you can see at a glance that (say) sRGB has plenty of
-  chroma in the reds and almost none in the cyans at high lightness.
-- **A lightness slider next to the diagram**, so you can sweep L and watch the
-  reachable shape grow and shrink.
-- **A separate slider for each axis** — L, C and H — each painted as a live ramp
-  of the colours you would get by moving it, with the out-of-gamut stretch
-  dimmed and hatched.
+  chroma in the reds and almost none in the cyans at high lightness. The picture
+  is cropped to the gamut's own extent, so the shape fills it instead of
+  floating inside a square.
+- **A track for each axis** — L, C and H — each painted as a live ramp of the
+  colours you would get by moving it, with the out-of-gamut stretch dimmed and
+  hatched.
 - **Chroma held on the gamut hull.** Moving lightness or hue slides the colour
   along the edge of what the document can hold rather than letting it drift
   outside, so what you see is always what you get.
@@ -77,14 +77,14 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 
 | Control | What it does |
 | --- | --- |
-| Diagram | Click or drag to set chroma (distance from the centre) and hue (angle, 0° at 3 o'clock, counter-clockwise). |
-| Strip beside the diagram | Lightness; the diagram is redrawn for the new slice. |
-| **L** / **C** / **H** tracks | The same three axes, one at a time. |
+| Diagram | Click or drag to set chroma (distance from the neutral point) and hue (angle, 0° at 3 o'clock, counter-clockwise). |
+| Top track | Lightness. The diagram is redrawn for the new slice. |
+| Middle track | Chroma, up to the largest the space can hold anywhere. |
+| Bottom track | Hue, right round the circle. |
 | Swatch | The colour you are on, which is also Photoshop's foreground colour. |
-| Hex field | Reads out the colour in *document* values; type one in to jump to it. |
 
-Every one of those writes straight through to the foreground swatch, live,
-while you drag.
+Both the diagram and the tracks write straight through to the foreground
+swatch, live, while you drag.
 
 ## How the gamut is computed
 
@@ -98,19 +98,30 @@ The gamut body is star-shaped in chroma at a fixed L and H, so the maximum
 chroma is found by bisection (~20 iterations, exact to ~10⁻⁷). The diagram
 samples that limit at 720 hues and interpolates, which also gives the outline
 its anti-aliased edge. A worst-case repaint — the lightness axis moving, so the
-diagram and all four ramps are stale at once — costs around ten milliseconds,
+diagram and all three ramps are stale at once — costs around ten milliseconds,
 so every frame is drawn at full resolution and there is no draft pass to flicker
 through.
 
-The chroma axis is scaled per space to that space's overall maximum chroma, so
-the scale does not shift under you as you move the lightness slider.
+The scale is fixed per space rather than per slice, so it does not shift under
+you as you move lightness. The diagram is a window onto the OKLab a/b plane, and
+that window is the space's whole gamut swept over every lightness and hue, plus
+2% headroom — not a square drawn to the largest chroma in any direction. The
+difference matters because the two are nothing like the same shape: sRGB reaches
+`b = −0.31` towards blue but only `+0.20` towards yellow, so the square left its
+top fifth permanently empty. Cropping to the real extent cuts the never-painted
+band from 21.5% of the height to 3%, and shows the hull 1.2× larger in the same
+number of pixels.
+
+A single slice still does not fill the window — at L = 0.57 about 17% of the
+height is above the shape — because the window has to stay put while the slice
+grows and shrinks. That is the price of a stable scale.
 
 ### Things worth knowing
 
 - **The panel is not colour managed.** Photoshop paints UXP panels as sRGB, so
-  colours the document can hold but sRGB cannot are drawn clipped. The *shape*
-  is always the document's true gamut; the fill is the closest sRGB can show.
-  The hex field reports document values, not screen values.
+  colours the document can hold but sRGB cannot are drawn clipped — in the
+  diagram, in the ramps and in the swatch alike. The *shape* is always the
+  document's true gamut; the fill is the closest sRGB can show.
 - **CMYK, Grayscale, Lab, Indexed and Duotone documents**, and RGB documents
   with a profile the panel does not recognise, fall back to sRGB for the
   diagram. Their gamuts are defined by an ICC profile that a UXP plugin cannot
@@ -134,9 +145,9 @@ npm run icons   # regenerate icons/ — they are rendered by the panel's own cod
 
 `index.html` opens directly in a browser for UI work: the Photoshop bridge
 degrades to a no-op, so the panel starts on its default colour and writes go
-nowhere, but the diagram, the sliders, the swatch and the hex field behave
-exactly as they do in Photoshop — including the way the layout compacts itself
-as you resize the window.
+nowhere, but the diagram, the tracks and the swatch behave exactly as they do
+in Photoshop — including the way the layout compacts itself as you resize the
+window.
 
 ### Layout
 

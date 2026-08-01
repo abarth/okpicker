@@ -356,19 +356,54 @@
     return a;
   }
 
-  /** Biggest chroma anywhere in the space; used to scale the C axis. Cached. */
-  function spaceMaxChroma(space) {
-    if (space._maxChroma !== undefined) return space._maxChroma;
-    var best = 0;
+  /**
+   * How far the space reaches, swept over every lightness and hue: the biggest
+   * chroma anywhere in it, and the extent of the whole gamut body projected
+   * onto the OKLab a/b plane.  One scan answers both; cached on the space.
+   */
+  function spaceExtent(space) {
+    if (space._extent) return space._extent;
+    var best = 0, aMin = 0, aMax = 0, bMin = 0, bMax = 0;
     for (var li = 1; li < 100; li++) {
       var L = li / 100;
       for (var hi2 = 0; hi2 < 360; hi2 += 2) {
         var c = maxChroma(space, L, hi2, 14);
         if (c > best) best = c;
+        var rad = hi2 * DEG;
+        var a = c * Math.cos(rad), b = c * Math.sin(rad);
+        if (a < aMin) aMin = a;
+        if (a > aMax) aMax = a;
+        if (b < bMin) bMin = b;
+        if (b > bMax) bMax = b;
       }
     }
-    space._maxChroma = best;
-    return best;
+    space._extent = { maxChroma: best, aMin: aMin, aMax: aMax, bMin: bMin, bMax: bMax };
+    return space._extent;
+  }
+
+  /** Biggest chroma anywhere in the space; used to scale the C axis. */
+  function spaceMaxChroma(space) {
+    return spaceExtent(space).maxChroma;
+  }
+
+  /**
+   * The a/b rectangle to draw a C/H diagram in: the gamut's own extent plus a
+   * little headroom, so the hull fills the picture instead of floating inside a
+   * square drawn to the largest chroma in any direction.  The neutral axis is
+   * always inside the box but is not generally at its centre — no RGB space
+   * reaches as far towards yellow as it does towards blue.
+   */
+  function spaceBounds(space) {
+    if (space._boundsBox) return space._boundsBox;
+    var e = spaceExtent(space);
+    var pad = 0.02 * Math.max(e.aMax - e.aMin, e.bMax - e.bMin);
+    space._boundsBox = {
+      aMin: Math.floor((e.aMin - pad) * 200) / 200,
+      aMax: Math.ceil((e.aMax + pad) * 200) / 200,
+      bMin: Math.floor((e.bMin - pad) * 200) / 200,
+      bMax: Math.ceil((e.bMax + pad) * 200) / 200
+    };
+    return space._boundsBox;
   }
 
   /**
@@ -597,7 +632,9 @@
     inGamut: inGamut,
     inGamutLinear: inGamutLinear,
     maxChroma: maxChroma,
+    spaceExtent: spaceExtent,
     spaceMaxChroma: spaceMaxChroma,
+    spaceBounds: spaceBounds,
     chromaEnvelope: chromaEnvelope,
     envelopeAt: envelopeAt,
 

@@ -1,13 +1,13 @@
 /*
  * Panel styling.  Colours are written literally (no custom properties) because
- * UXP's CSS support is a subset of the web platform's; the dark values are the
- * default and a prefers-color-scheme block flips them for the light themes.
- * Anything painted by the renderer relies on alpha instead of a known
- * background, so it works under either theme.
+ * UXP's CSS support is a subset of the web platform's.  There is no light-theme
+ * block and nothing here is theme-aware: the panel has no text, and everything
+ * the renderer paints carries its own alpha rather than assuming a background,
+ * so the same rules read correctly on every Photoshop theme.
  *
  * The panel never scrolls: it is sized to the viewport and ui.js writes the
- * pixel heights of the diagram, the swatch row and the tracks so the whole
- * picker always fits whatever vertical space Photoshop gives it.
+ * pixel sizes of the diagram, the swatch and the tracks so the whole picker
+ * always fits whatever space Photoshop gives it.
  */
 
 * {
@@ -55,16 +55,6 @@ body {
   cursor: crosshair;
 }
 
-.vramp {
-  position: relative;
-  flex: 0 0 auto;
-  width: 18px;
-  margin-left: 6px;
-  border-radius: 3px;
-  cursor: pointer;
-  background-color: rgba(127, 127, 127, 0.12);
-}
-
 .surface {
   position: absolute;
   left: 0;
@@ -102,88 +92,42 @@ body {
   border-radius: 5px;
 }
 
-.vthumb {
-  position: absolute;
-  left: -2px;
-  right: -2px;
-  height: 5px;
-  margin-top: -3px;
-  border: 1px solid rgba(0, 0, 0, 0.75);
-  border-radius: 3px;
-  background-color: #ffffff;
-  pointer-events: none;
-}
+/* ------------------------------------------------- swatch and axis tracks */
 
-/* --------------------------------------------------------- colour readout */
-
-.swatchrow {
+.controls {
   flex: 0 0 auto;
   display: flex;
   flex-direction: row;
   align-items: center;
   margin-top: 6px;
-  height: 26px;
 }
 
 .swatch {
-  flex: 1 1 auto;
-  align-self: stretch;
-  min-width: 0;
-  margin-right: 4px;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  margin-right: 6px;
   border: 1px solid rgba(127, 127, 127, 0.5);
   border-radius: 3px;
   background-color: #000000;
 }
 
-.hex {
-  flex: 0 0 auto;
-  width: 68px;
-  height: 22px;
-  padding: 0 4px;
-  border: 1px solid rgba(127, 127, 127, 0.4);
-  border-radius: 3px;
-  color: inherit;
-  background-color: rgba(127, 127, 127, 0.12);
-  font-family: monospace;
-  font-size: 11px;
-  text-align: center;
-}
-
-/* --------------------------------------------------------------- sliders */
-
 .sliders {
-  flex: 0 0 auto;
-  margin-top: 6px;
-}
-
-.slider {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  height: 15px;
-  margin-top: 5px;
-}
-
-.slider:first-child {
-  margin-top: 0;
-}
-
-.axis {
-  flex: 0 0 auto;
-  width: 10px;
-  color: #8f8f8f;
-  font-size: 9px;
-  line-height: 15px;
-  text-align: left;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .track {
   position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
+  height: 15px;
+  margin-top: 5px;
   border-radius: 3px;
   background-color: rgba(127, 127, 127, 0.12);
   cursor: pointer;
+}
+
+.track:first-child {
+  margin-top: 0;
 }
 
 .thumb {
@@ -196,16 +140,4 @@ body {
   border-radius: 3px;
   background-color: #ffffff;
   pointer-events: none;
-}
-
-/* ------------------------------------------------------------ light themes */
-
-@media (prefers-color-scheme: light) {
-  body {
-    color: #2b2b2b;
-  }
-
-  .axis {
-    color: #6a6a6a;
-  }
 }

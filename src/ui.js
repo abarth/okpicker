@@ -96,8 +96,14 @@
     return OKColor.getSpace(state.spaceId) || OKColor.spaces.srgb;
   }
 
-  /** Chroma at the outer edge of the diagram: the space's own maximum plus a
-   *  little headroom so the shape never touches the border. */
+  /** The part of the OKLab a/b plane the diagram shows: the gamut's own extent,
+   *  so the hull fills the picture instead of floating inside a square. */
+  function plotBounds() {
+    return OKColor.spaceBounds(activeSpace());
+  }
+
+  /** Chroma at the far end of the C track: the space's own maximum plus a
+   *  little headroom, so the scale does not shift as lightness moves. */
   function plotMaxC() {
     var id = state.spaceId;
     if (maxCCache[id] === undefined) {
@@ -133,13 +139,13 @@
 
   // --------------------------------------------------------------- painting
 
-  var dirty = { plot: true, l: true, c: true, h: true, vramp: true };
+  var dirty = { plot: true, l: true, c: true, h: true };
   var frameQueued = false;
 
   function requestRender(opts) {
     opts = opts || {};
     if (opts.plot) dirty.plot = true;
-    if (opts.ramps) { dirty.l = true; dirty.c = true; dirty.h = true; dirty.vramp = true; }
+    if (opts.ramps) { dirty.l = true; dirty.c = true; dirty.h = true; }
     if (frameQueued) return;
     frameQueued = true;
     raf(function () {
@@ -171,22 +177,24 @@
 
   /**
    * Repaint whatever is dirty, always at full resolution.  A worst-case frame
-   * (the lightness axis moving, so the diagram and all four ramps are stale)
+   * (the lightness axis moving, so the diagram and all three ramps are stale)
    * costs about ten milliseconds, which is cheap enough that there is no need
    * for a reduced-quality pass while dragging.
    */
   function renderFrame() {
     var space = activeSpace();
-    var maxC = plotMaxC();
     var ratio = pixelRatio();
     // Canvas takes a bitmap straight from memory, so it can afford more pixels
     // than the PNG-through-a-data-URI fallback.
     var plotCap = surfaces.plot.kind === 'canvas' ? 448 : 320;
 
     if (dirty.plot) {
-      var size = Math.max(96, Math.min(plotCap, Math.round(layoutSizes.plot * ratio)));
+      var pw = Math.max(96, Math.min(plotCap, Math.round(layoutSizes.plotW * ratio)));
+      // Derive the height from the same aspect the element uses, so the pixels
+      // stay square and nothing is stretched on the way to the screen.
+      var ph = Math.max(48, Math.round(pw * layoutSizes.aspect));
       surfaces.plot.paint(OKRender.chPlot({
-        space: space, L: state.L, maxC: maxC, size: size,
+        space: space, L: state.L, bounds: plotBounds(), width: pw, height: ph,
         envelope: OKColor.chromaEnvelope(space, state.L, 720, 20),
         outline: outlineColor()
       }));
@@ -194,16 +202,6 @@
     }
 
     var rampHeight = Math.max(6, Math.round(layoutSizes.track * ratio));
-
-    if (dirty.vramp) {
-      surfaces.vramp.paint(OKRender.lightnessRamp({
-        space: space, C: state.C, H: state.H,
-        width: Math.round(layoutSizes.vrampWidth * ratio),
-        height: Math.max(40, Math.min(560, Math.round(layoutSizes.plot * ratio))),
-        vertical: true
-      }));
-      dirty.vramp = false;
-    }
 
     if (dirty.l) {
       surfaces.l.paint(OKRender.lightnessRamp({
@@ -215,7 +213,7 @@
 
     if (dirty.c) {
       surfaces.c.paint(OKRender.chromaRamp({
-        space: space, L: state.L, H: state.H, maxC: maxC,
+        space: space, L: state.L, H: state.H, maxC: plotMaxC(),
         width: trackWidth(els.cTrack), height: rampHeight
       }));
       dirty.c = false;
@@ -230,28 +228,21 @@
     }
 
     updateMarkers();
-    updateReadout();
+    updateSwatch();
   }
 
   function updateMarkers() {
-    var f = OKRender.markerFraction(state.C, state.H, plotMaxC());
+    var f = OKRender.markerFraction(state.C, state.H, plotBounds());
     els.plotMarker.style.left = (f.x * 100) + '%';
     els.plotMarker.style.top = (f.y * 100) + '%';
-    els.lRampThumb.style.top = ((1 - state.L) * 100) + '%';
     els.lThumb.style.left = (state.L * 100) + '%';
     els.cThumb.style.left = (clamp01(state.C / plotMaxC()) * 100) + '%';
     els.hThumb.style.left = ((state.H / 360) * 100) + '%';
   }
 
-  function currentHex() {
-    return OKColor.describe(activeSpace(), state.L, state.C, state.H).docHex;
-  }
-
-  function updateReadout() {
-    var info = OKColor.describe(activeSpace(), state.L, state.C, state.H);
-    els.swatch.style.backgroundColor = info.displayHex;
-    // Never fight with the field while it is being typed into.
-    if (doc.activeElement !== els.hexInput) els.hexInput.value = info.docHex;
+  function updateSwatch() {
+    els.swatch.style.backgroundColor =
+      OKColor.describe(activeSpace(), state.L, state.C, state.H).displayHex;
   }
 
   // ------------------------------------------------------------ interaction
@@ -400,6 +391,9 @@
     if (spaceId === previous) return;
     state.spaceId = spaceId;
     reconcileChroma();
+    // A different gamut is a different shape, so the diagram's proportions
+    // change with it.
+    layout();
     requestRender({ plot: true, ramps: true });
   }
 
@@ -409,30 +403,28 @@
   }
 
   // ------------------------------------------------------------------ setup
-  // The panel never scrolls.  Everything below the diagram has a fixed height,
-  // so the diagram takes whatever is left over; when even that is not enough,
-  // the chrome steps down through progressively tighter metrics.
+  // The panel never scrolls.  The swatch and the tracks have a fixed height, so
+  // the diagram takes whatever is left over; when even that is not enough, the
+  // chrome steps down through progressively tighter metrics.
 
-  var VRAMP_WIDTH = 18;   // must match .vramp in styles.css
-  var VRAMP_GAP = 6;      // ...and its left margin
-  var AXIS_WIDTH = 10;    // ...and .axis
-  var BODY_PAD = 6;       // ...and the body's padding
-  var SWATCH_MAX = 72;    // tallest the colour preview is allowed to grow
-  var TRACK_MAX = 26;     // ...and the axis ramps
+  var BODY_PAD = 6;       // must match the body's padding in styles.css
+  var SWATCH_GAP = 6;     // ...and .swatch's right margin
+  var SWATCH_MAX = 40;    // the swatch is a preview, not a feature
+  var TRACK_MAX = 32;     // tallest the axis ramps are allowed to grow
 
   var DENSITY = [
-    { track: 15, trackGap: 5, swatch: 26, rowGap: 6, minPlot: 150 },
-    { track: 13, trackGap: 4, swatch: 24, rowGap: 5, minPlot: 120 },
-    { track: 11, trackGap: 3, swatch: 21, rowGap: 4, minPlot: 96 },
-    { track: 9, trackGap: 2, swatch: 19, rowGap: 3, minPlot: 72 },
-    { track: 8, trackGap: 2, swatch: 17, rowGap: 2, minPlot: 0 }
+    { track: 15, trackGap: 5, rowGap: 6, minPlot: 150 },
+    { track: 13, trackGap: 4, rowGap: 5, minPlot: 120 },
+    { track: 11, trackGap: 3, rowGap: 4, minPlot: 96 },
+    { track: 9, trackGap: 2, rowGap: 3, minPlot: 72 },
+    { track: 8, trackGap: 2, rowGap: 2, minPlot: 0 }
   ];
 
-  var layoutSizes = { plot: 180, track: 15, vrampWidth: VRAMP_WIDTH };
+  var layoutSizes = { plotW: 180, plotH: 180, aspect: 1, track: 15 };
 
   /** Height of everything under the diagram, for one set of metrics. */
   function chromeHeight(d) {
-    return d.rowGap + d.swatch + d.rowGap + (3 * d.track + 2 * d.trackGap);
+    return d.rowGap + (3 * d.track + 2 * d.trackGap);
   }
 
   /**
@@ -458,49 +450,49 @@
   function layout() {
     var width = rootWidth();
     var height = viewportHeight() - 2 * BODY_PAD;
-    var widthLimit = Math.max(24, width - VRAMP_WIDTH - VRAMP_GAP);
+    var bounds = plotBounds();
+    var aspect = (bounds.bMax - bounds.bMin) / (bounds.aMax - bounds.aMin);
 
     var d = DENSITY[DENSITY.length - 1];
     for (var i = 0; i < DENSITY.length; i++) {
-      if (height - chromeHeight(DENSITY[i]) >= Math.min(widthLimit, DENSITY[i].minPlot)) {
+      var fits = Math.min(width, (height - chromeHeight(DENSITY[i])) / aspect);
+      if (fits >= Math.min(width, DENSITY[i].minPlot)) {
         d = DENSITY[i];
         break;
       }
     }
 
-    var plot = clamp(Math.min(widthLimit, height - chromeHeight(d)), 28, 560);
+    var room = height - chromeHeight(d);
+    var plotW = Math.round(clamp(Math.min(width, room / aspect), 24, 620));
+    var plotH = Math.max(16, Math.round(plotW * aspect));
 
-    // The diagram is square, so a tall narrow panel still has height to spare
-    // once the diagram is as wide as it can be.  Spend it on the ramps and the
-    // colour preview rather than leaving it as a gap in the middle.
+    // A diagram cropped to the gamut is wider than it is tall for most spaces,
+    // so a tall panel has height to spare.  Spend it on the ramps.
     var track = d.track;
-    var swatch = d.swatch;
-    var slack = height - chromeHeight(d) - plot;
+    var slack = room - plotH;
     if (slack > 0) {
       var grow = Math.min(TRACK_MAX - track, Math.floor(slack / 3));
-      if (grow > 0) { track += grow; slack -= 3 * grow; }
-      swatch += Math.min(SWATCH_MAX - swatch, slack);
+      if (grow > 0) track += grow;
     }
 
-    var changed = plot !== layoutSizes.plot || track !== layoutSizes.track;
-    layoutSizes = { plot: plot, track: track, vrampWidth: VRAMP_WIDTH };
+    var stack = 3 * track + 2 * d.trackGap;
+    var swatch = Math.min(stack, SWATCH_MAX);
 
-    els.plot.style.width = plot + 'px';
-    els.plot.style.height = plot + 'px';
-    els.lRamp.style.width = VRAMP_WIDTH + 'px';
-    els.lRamp.style.height = plot + 'px';
-    els.lRamp.style.marginLeft = VRAMP_GAP + 'px';
+    var changed = plotW !== layoutSizes.plotW || plotH !== layoutSizes.plotH ||
+      track !== layoutSizes.track;
+    layoutSizes = { plotW: plotW, plotH: plotH, aspect: aspect, track: track };
 
-    els.swatchrow.style.height = swatch + 'px';
-    els.swatchrow.style.marginTop = d.rowGap + 'px';
-    els.sliders.style.marginTop = d.rowGap + 'px';
+    els.plot.style.width = plotW + 'px';
+    els.plot.style.height = plotH + 'px';
 
-    for (var s = 0; s < els.sliderRows.length; s++) {
-      var row = els.sliderRows[s];
-      row.style.height = track + 'px';
-      row.style.marginTop = (s === 0 ? 0 : d.trackGap) + 'px';
-      row.firstElementChild.style.width = AXIS_WIDTH + 'px';
-      row.firstElementChild.style.lineHeight = track + 'px';
+    els.controls.style.marginTop = d.rowGap + 'px';
+    els.swatch.style.width = swatch + 'px';
+    els.swatch.style.height = swatch + 'px';
+    els.swatch.style.marginRight = SWATCH_GAP + 'px';
+
+    for (var t = 0; t < els.tracks.length; t++) {
+      els.tracks[t].style.height = track + 'px';
+      els.tracks[t].style.marginTop = (t === 0 ? 0 : d.trackGap) + 'px';
     }
 
     return changed;
@@ -513,12 +505,8 @@
 
   function bindEvents() {
     bindDrag(els.plot, function (f) {
-      var v = OKRender.fractionToCh(f.x, f.y, plotMaxC());
+      var v = OKRender.fractionToCh(f.x, f.y, plotBounds());
       setColor({ C: v.C, H: v.H });
-    }, pushForeground);
-
-    bindDrag(els.lRamp, function (f) {
-      setColor({ L: 1 - clamp01(f.y) });
     }, pushForeground);
 
     bindDrag(els.lTrack, function (f) {
@@ -532,29 +520,6 @@
     bindDrag(els.hTrack, function (f) {
       setColor({ H: clamp01(f.x) * 360 });
     }, pushForeground);
-
-    function commitHex() {
-      var enc = OKColor.parseHex(els.hexInput.value);
-      if (!enc) {
-        els.hexInput.value = currentHex();
-        return;
-      }
-      var space = activeSpace();
-      var lin = OKColor.decodeChannels(space, enc);
-      var lch = OKColor.linearToOklch(space, lin[0], lin[1], lin[2]);
-      state.L = clamp01(lch[0]);
-      state.H = wrapHue(lch[2]);
-      state.desiredC = Math.max(0, lch[1]);
-      reconcileChroma();
-      els.hexInput.value = currentHex();
-      requestRender({ plot: true, ramps: true });
-      pushForeground();
-    }
-    els.hexInput.addEventListener('change', commitHex);
-    els.hexInput.addEventListener('blur', commitHex);
-    els.hexInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') commitHex();
-    });
 
     var resizeTimer = null;
     function onResize() {
@@ -580,20 +545,15 @@
       root: $('root'),
       plot: $('plot'),
       plotMarker: $('plotMarker'),
-      lRamp: $('lRamp'),
-      lRampThumb: $('lRampThumb'),
-      swatchrow: $('swatchrow'),
+      controls: $('controls'),
       swatch: $('swatch'),
-      hexInput: $('hexInput'),
-      sliders: $('sliders'),
       lTrack: $('lTrack'), lThumb: $('lThumb'),
       cTrack: $('cTrack'), cThumb: $('cThumb'),
       hTrack: $('hTrack'), hThumb: $('hThumb')
     };
-    els.sliderRows = Array.prototype.slice.call(els.sliders.children);
+    els.tracks = [els.lTrack, els.cTrack, els.hTrack];
 
     surfaces.plot = new Surface($('plotSurface'));
-    surfaces.vramp = new Surface($('lRampSurface'));
     surfaces.l = new Surface($('lTrackSurface'));
     surfaces.c = new Surface($('cTrackSurface'));
     surfaces.h = new Surface($('hTrackSurface'));
