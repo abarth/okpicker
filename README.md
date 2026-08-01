@@ -35,7 +35,10 @@ fit inside the current document's colour space.
   swatch matches the colour you picked no matter what the document's working
   space is.
 - **Fits the space it is given.** Everything is sized to the panel, so the whole
-  picker stays reachable in a narrow Photoshop side panel without scrolling.
+  picker stays reachable in a narrow Photoshop side panel without scrolling. The
+  tracks sit on the bottom edge and the diagram centres itself in whatever is
+  left, so a tall dock gets a balanced picture rather than a pool of empty space
+  under the controls.
 
 ## Requirements
 
@@ -81,7 +84,7 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 | Top track | Lightness. The diagram is redrawn for the new slice. |
 | Middle track | Chroma, up to the largest the space can hold anywhere. |
 | Bottom track | Hue, right round the circle. |
-| Swatch | The colour you are on, which is also Photoshop's foreground colour. It sits inside the diagram, in a corner the gamut cannot reach, and drags pass straight through it. |
+| Swatch | The colour you are on, which is also Photoshop's foreground colour. It sits inside the diagram, in a corner the gamut cannot reach. Pressing it does nothing — it reports the colour, it does not set one — though a drag begun on the diagram keeps tracking across it. |
 
 Both the diagram and the tracks write straight through to the foreground
 swatch, live, while you drag.

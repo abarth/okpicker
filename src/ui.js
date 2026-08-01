@@ -513,6 +513,14 @@
       setColor({ C: v.C, H: v.H });
     }, pushForeground);
 
+    // The swatch sits inside the diagram, so a press on it would otherwise
+    // bubble to the diagram and be read as a pick.  It is a readout: pressing
+    // it does nothing.  A drag that started on the diagram still tracks across
+    // it, because that listens on the document once it is under way.
+    els.swatch.addEventListener('mousedown', function (e) {
+      if (e.stopPropagation) e.stopPropagation();
+    });
+
     bindDrag(els.lTrack, function (f) {
       setColor({ L: clamp01(f.x) });
     }, pushForeground);
