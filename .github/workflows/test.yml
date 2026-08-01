@@ -17,17 +17,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ['22.x', '24.x']
-    name: node ${{ matrix.node-version }}
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 'lts/*'
 
       # There is nothing to install: the plugin has no dependencies and no
       # build step, so the checkout is already the thing under test.
