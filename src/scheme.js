@@ -161,9 +161,7 @@
   }
 
   /**
-   * The falloff curve as a list of {t, value} samples.  The panel draws it and
-   * the Photoshop side hands the same numbers to the gradient tool, which is
-   * the only reason the two agree.
+   * The falloff curve as a list of {t, value} samples, for drawing.
    */
   function falloffCurve(light, samples) {
     var n = samples || 17;
@@ -173,6 +171,89 @@
       out.push({ t: t, value: falloff(t, light.softness) });
     }
     return out;
+  }
+
+  // ------------------------------------------------------------ mask pixels
+  // The mask Photoshop gets is this function evaluated over the document,
+  // written straight into the layer's mask as bytes.  Not a gradient handed to
+  // the gradient tool: since Photoshop 2023 that tool makes a gradient *fill
+  // layer* rather than painting, which is no way to fill a mask - and going
+  // through pixels means the mask is the same falloff the panel previewed
+  // rather than an approximation of it in gradient stops.
+
+  var FALLOFF_STEPS = 2048;
+
+  function falloffLut(soft) {
+    var lut = new Uint8Array(FALLOFF_STEPS + 1);
+    for (var i = 0; i <= FALLOFF_STEPS; i++) {
+      lut[i] = Math.round(falloff(i / FALLOFF_STEPS, soft) * 255);
+    }
+    return lut;
+  }
+
+  /**
+   * A light's coverage over the whole frame, as one byte per pixel.
+   *
+   * @param {object} light
+   * @param {{width:number, height:number}} frame  document size in pixels
+   * @returns {Uint8Array} width*height, row by row from the top
+   */
+  function maskPixels(light, frame) {
+    var w = Math.max(1, Math.round(frame.width));
+    var h = Math.max(1, Math.round(frame.height));
+    var data = new Uint8Array(w * h);
+    var shape = getShape(light.shape);
+    var lut = falloffLut(light.softness);
+    var i = 0, x, y;
+
+    if (shape.id === 'radial') {
+      var cx = light.x * w, cy = light.y * h;
+      var radius = Math.max(1e-4, light.size) * Math.max(w, h);
+      var perPixel = FALLOFF_STEPS / radius;
+      // Only the disc itself is worth walking: everything past it is zero, and
+      // the buffer starts that way.
+      var top = Math.max(0, Math.floor(cy - radius));
+      var bottom = Math.min(h, Math.ceil(cy + radius) + 1);
+      for (y = top; y < bottom; y++) {
+        var dy = (y + 0.5) - cy;
+        var dy2 = dy * dy;
+        var reach = radius * radius - dy2;
+        if (reach <= 0) continue;
+        reach = Math.sqrt(reach);
+        var left = Math.max(0, Math.floor(cx - reach));
+        var right = Math.min(w, Math.ceil(cx + reach) + 1);
+        i = y * w + left;
+        for (x = left; x < right; x++) {
+          var dx = (x + 0.5) - cx;
+          var d = Math.sqrt(dx * dx + dy2) * perPixel;
+          data[i++] = d >= FALLOFF_STEPS ? 0 : lut[d | 0];
+        }
+      }
+      return data;
+    }
+
+    if (shape.id === 'linear') {
+      var a = light.angle * DEG;
+      var ux = Math.cos(a), uy = -Math.sin(a);
+      var half = 0.5 * (w * Math.abs(ux) + h * Math.abs(uy)) || 1;
+      // Coverage is affine across the frame, so each row is one starting point
+      // and a step: (1 - along) / 2, where `along` runs -1 to 1 up the light's
+      // own direction.
+      var step = -0.5 * (ux / half) * FALLOFF_STEPS;
+      for (y = 0; y < h; y++) {
+        var py = (y + 0.5) - h / 2;
+        var at = (1 - (((0.5 - w / 2) * ux + py * uy) / half)) * 0.5 * FALLOFF_STEPS;
+        for (x = 0; x < w; x++) {
+          data[i++] = at <= 0 ? 255 : (at >= FALLOFF_STEPS ? 0 : lut[at | 0]);
+          at += step;
+        }
+      }
+      return data;
+    }
+
+    // Everywhere: a mask that hides nothing.
+    for (i = 0; i < data.length; i++) data[i] = 255;
+    return data;
   }
 
   // ------------------------------------------------------------ light kinds
@@ -726,6 +807,7 @@
 
     falloff: falloff,
     falloffCurve: falloffCurve,
+    maskPixels: maskPixels,
     maskWeight: maskWeight,
     toneWeight: toneWeight,
 

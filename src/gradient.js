@@ -40,7 +40,6 @@
   // difference is under a level, and short enough to stay a gradient a person
   // can open and edit by hand.
   var STOPS = 33;
-  var MASK_STOPS = 13;
 
   // Stops are spaced evenly in *lightness*, not along the encoded value axis.
   // The bottom of that axis is savagely compressed - a quarter of everything a
@@ -192,41 +191,11 @@
   }
 
   // ------------------------------------------------------------------ masks
-
-  /**
-   * Where a light's mask gradient starts and ends, in document pixels, plus the
-   * falloff as grey stops.  Photoshop draws exactly this and the panel's
-   * preview evaluates the same curve, so the two cannot drift apart.
-   *
-   * @returns {null|{type:string, from:object, to:object, stops:Array}}
-   */
-  function maskGeometry(light, frame) {
-    var w = frame.width, h = frame.height;
-    var stops = OKScheme.falloffCurve(light, MASK_STOPS);
-    if (light.shape === 'radial') {
-      var cx = light.x * w, cy = light.y * h;
-      var radius = Math.max(1e-4, light.size) * Math.max(w, h);
-      return {
-        type: 'radial',
-        from: { x: cx, y: cy },
-        to: { x: cx + radius, y: cy },
-        stops: stops
-      };
-    }
-    if (light.shape === 'linear') {
-      var a = light.angle * Math.PI / 180;
-      var ux = Math.cos(a), uy = -Math.sin(a);
-      var half = 0.5 * (w * Math.abs(ux) + h * Math.abs(uy));
-      return {
-        type: 'linear',
-        // From the edge the light comes from, to the far one.
-        from: { x: w / 2 + ux * half, y: h / 2 + uy * half },
-        to: { x: w / 2 - ux * half, y: h / 2 - uy * half },
-        stops: stops
-      };
-    }
-    return null;
-  }
+  // Where a light falls is `OKScheme.maskPixels`, evaluated over the document
+  // and written into the layer's mask as bytes.  The plan carries the light
+  // itself rather than a rendered mask: a full-size mask is megabytes, and
+  // there is no reason to hold several of them at once when they are written
+  // one at a time.
 
   // ------------------------------------------------------------------- plan
   // Everything Photoshop needs, worked out before a single command is sent.
@@ -255,7 +224,7 @@
         peak: gradient.peak,
         asked: gradient.asked,
         stops: gradient.stops,
-        mask: maskGeometry(light, frame)
+        mask: light.shape === 'none' ? null : light
       };
     });
     // One light makes one layer and no group to hang the scheme on, so that
@@ -265,6 +234,7 @@
     return {
       name: scheme.name || 'Underpainting',
       title: OKScheme.schemeName(scheme),
+      frame: { width: frame.width, height: frame.height },
       // Bottom of the stack first, which is the order Photoshop wants them made
       // in, the order the panel lists them in, and the order they were compiled
       // in: the first light is the one everything else sits on top of.
@@ -386,13 +356,11 @@
 
   return {
     STOPS: STOPS,
-    MASK_STOPS: MASK_STOPS,
     spaceOf: spaceOf,
     blendOf: blendOf,
     compileLight: compileLight,
     grayAt: grayAt,
     sampleGradient: sampleGradient,
-    maskGeometry: maskGeometry,
     plan: plan,
     compile: compile,
     composite: composite,

@@ -51,6 +51,11 @@
     try { return ps.app.activeDocument || null; } catch (e) { return null; }
   }
 
+  /** Photoshop's pixel API, for writing a layer mask without a tool. */
+  function imaging() {
+    try { return ps.imaging || null; } catch (e) { return null; }
+  }
+
   /**
    * Name / colour mode / ICC profile / pixel size of the frontmost document.
    * Resolves to `{hasDocument:false}` rather than throwing when nothing is open.
@@ -345,6 +350,7 @@
     batchPlay: batchPlay,
     modal: modal,
     activeDocument: activeDocument,
+    imaging: imaging,
     getDocumentInfo: getDocumentInfo,
     layerTree: layerTree,
     findLayer: findLayer,

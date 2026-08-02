@@ -208,9 +208,12 @@ them, and **chroma** scales the lot.
 | **From layers** | Reads the scheme back out of the layers already in the document. |
 
 **Build** puts one gradient-map adjustment layer in the document per light, in
-the blend mode that light was solved for, masked to where it falls. More than
-one and they go in a group named after the scheme, in pass-through so they reach
-the drawing underneath. It is one history state, so one undo takes all of it
+the blend mode that light was solved for, masked to where it falls. The mask is
+the light's own falloff written into it pixel by pixel — the same function the
+frame preview draws, not a redrawing of it with the gradient tool, which since
+Photoshop 2023 makes a gradient *fill layer* rather than painting anything.
+More than one and they go in a group named after the scheme, in pass-through so
+they reach the drawing underneath. It is one history state, so one undo takes all of it
 back.
 
 Press it again and it *replaces* what it made rather than stacking a second copy
@@ -349,9 +352,17 @@ masked away, so it is the only safe thing for the rest to stand on. **Down** and
 - **The stops are the document's own values**, worked out in the working space
   the panel matched from its ICC profile. A profile it does not recognise falls
   back to sRGB, exactly as the picker does.
-- **An active selection is dropped** before the masks are drawn — the gradient
-  tool would otherwise clip every one of them to it. That happens inside the
-  same history step, so undo puts the selection back.
+- **An active selection is dropped** before the layers are made — Photoshop
+  builds a new layer mask out of whatever is selected, which would cut every
+  one of them to that shape. It happens inside the same history step, so undo
+  puts the selection back.
+- **A build that fails takes itself back out.** Every layer is checked once it
+  is made: that it really is a gradient map, and that its blend mode took. If
+  either is wrong the build stops and deletes what it had made rather than
+  leaving the document half changed — because the failure that matters here is
+  silent. The ramps are mid grey wherever a light does nothing, since mid grey
+  is what "leave this tone alone" means to the contrast modes, so the same ramp
+  left in normal mode maps every tone to grey and flattens the drawing.
 - The layers are ordinary gradient maps and ordinary masks. Nothing about them
   depends on the panel: open one in the gradient editor and edit it by hand if
   you like. Building again will overwrite it, so keep hand edits above the
@@ -387,7 +398,7 @@ between them; in Photoshop that bar is never built.
 | `src/blend.js` | Blend modes forwards and backwards, and the stop solver that holds lightness. No DOM. |
 | `src/scheme.js` | The lighting scheme: kinds, tonal profiles, mask shapes, palettes, and both of its written forms — JSON, and the tokens in the layer names. No DOM, no Photoshop. |
 | `src/gradient.js` | The compiler: a scheme in, gradients and mask geometry out, plus the simulation the previews are drawn from. |
-| `src/apply.js` | Building the plan in the document: adjustment layers, masks, grouping, replacing what was there before. |
+| `src/apply.js` | Building the plan in the document: adjustment layers, mask pixels, grouping, replacing what was there before, and checking that what was asked for is what got made. |
 | `src/underpaint.js` | The underpaint panel: its markup, its two previews and its controls. |
 | `test/` | Unit tests for everything above the DOM. |
 

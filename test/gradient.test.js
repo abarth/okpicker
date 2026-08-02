@@ -204,50 +204,59 @@ test('a plan carries a blend mode and a mask for each light', () => {
     assert.strictEqual(layer.name, light.name);
     assert.strictEqual(layer.blend, B.getMode(light.blend || scheme.blend).ps);
     if (light.shape === 'none') assert.strictEqual(layer.mask, null, light.name + ' needs no mask');
-    else assert.ok(layer.mask, light.name + ' needs a mask');
+    else assert.strictEqual(layer.mask, light, light.name + ' is masked by its own falloff');
   });
 });
 
-test('the mask Photoshop draws is the mask the panel previewed', () => {
-  const light = S.normaliseLight({ kind: 'lamp', x: 0.3, y: 0.6, size: 0.28, softness: 0.7 });
-  const mask = G.maskGeometry(light, FRAME);
-  assert.strictEqual(mask.type, 'radial');
-  close(mask.from.x, 0.3 * FRAME.width, 1e-9, 'centred on the light');
-  close(mask.from.y, 0.6 * FRAME.height, 1e-9);
-  const radius = Math.hypot(mask.to.x - mask.from.x, mask.to.y - mask.from.y);
-  close(radius, 0.28 * FRAME.width, 1e-9, 'out to its size');
-
-  // Walk the gradient the tool would draw and compare it with the preview.
-  for (let i = 0; i <= 10; i++) {
-    const t = i / 10;
-    const x = mask.from.x + (mask.to.x - mask.from.x) * t;
-    const drawn = sampleCurve(mask.stops, t);
-    const previewed = S.maskWeight(light, x / FRAME.width, mask.from.y / FRAME.height, FRAME);
-    close(drawn, previewed, 0.03, 'coverage at ' + t);
-  }
-});
-
-test('a wash runs from the side its light is on', () => {
-  const light = S.normaliseLight({ kind: 'sun', angle: 0, softness: 1 });
-  const mask = G.maskGeometry(light, FRAME);
-  assert.strictEqual(mask.type, 'linear');
-  close(mask.from.x, FRAME.width, 1e-9, 'starts at the right edge');
-  close(mask.to.x, 0, 1e-9, 'and ends at the left');
-  close(mask.from.y, FRAME.height / 2, 1e-9);
-  assert.strictEqual(mask.stops[0].value, 1);
-  assert.strictEqual(mask.stops[mask.stops.length - 1].value, 0);
-});
-
-function sampleCurve(stops, t) {
-  for (let i = 1; i < stops.length; i++) {
-    if (t <= stops[i].t) {
-      const span = stops[i].t - stops[i - 1].t;
-      const f = span > 0 ? (t - stops[i - 1].t) / span : 0;
-      return stops[i - 1].value + (stops[i].value - stops[i - 1].value) * f;
+test('the mask Photoshop is given is the mask the panel previewed', () => {
+  // Not a redrawing of it in gradient stops - the same function, evaluated over
+  // the document and handed over as bytes.
+  const frame = { width: 240, height: 160 };
+  [
+    S.normaliseLight({ kind: 'lamp', x: 0.3, y: 0.6, size: 0.28, softness: 0.7 }),
+    S.normaliseLight({ kind: 'spot', x: 0.5, y: 0.5, size: 0.2, softness: 1 }),
+    S.normaliseLight({ kind: 'sun', angle: 155, softness: 0.9 }),
+    S.normaliseLight({ kind: 'sun', angle: 0, softness: 0.5 }),
+    S.normaliseLight({ kind: 'ambient' })
+  ].forEach((light) => {
+    const pixels = S.maskPixels(light, frame);
+    assert.strictEqual(pixels.length, frame.width * frame.height, light.kind + ' size');
+    for (let y = 0; y < frame.height; y += 7) {
+      for (let x = 0; x < frame.width; x += 5) {
+        const want = S.maskWeight(light, (x + 0.5) / frame.width, (y + 0.5) / frame.height, frame);
+        close(pixels[y * frame.width + x], Math.round(want * 255), 1,
+          light.kind + ' coverage at ' + x + ',' + y);
+      }
     }
-  }
-  return stops[stops.length - 1].value;
-}
+  });
+});
+
+test('a light that reaches everywhere hides nothing', () => {
+  const pixels = S.maskPixels(S.normaliseLight({ kind: 'ambient' }), { width: 8, height: 4 });
+  assert.ok(Array.prototype.every.call(pixels, (v) => v === 255));
+});
+
+test('a disc is full at its centre and gone outside it', () => {
+  const frame = { width: 200, height: 200 };
+  const lamp = S.normaliseLight({ kind: 'lamp', x: 0.5, y: 0.5, size: 0.25, softness: 0.6 });
+  const at = (fx, fy) => S.maskPixels(lamp, frame)[
+    Math.floor(fy * frame.height) * frame.width + Math.floor(fx * frame.width)];
+  assert.strictEqual(at(0.5, 0.5), 255, 'the middle');
+  assert.strictEqual(at(0.02, 0.02), 0, 'the corner');
+  assert.strictEqual(at(0.98, 0.98), 0, 'and the far corner');
+});
+
+test('a wash is full on the side its light comes from', () => {
+  const frame = { width: 200, height: 120 };
+  const east = S.normaliseLight({ kind: 'sun', angle: 0, softness: 1 });
+  const pixels = S.maskPixels(east, frame);
+  const row = 60 * frame.width;
+  assert.ok(pixels[row + 198] > 250, 'full at the right');
+  assert.ok(pixels[row + 1] < 5, 'gone at the left');
+  close(pixels[row + 100], 128, 4, 'half way across');
+  // ...and it does not vary down a column, since the light is horizontal.
+  assert.strictEqual(pixels[10 * frame.width + 50], pixels[110 * frame.width + 50]);
+});
 
 test('a tone slice at full coverage is the composite it stands in for', () => {
   const scheme = S.create('underwater');
@@ -284,13 +293,6 @@ test('the descriptors handed to Photoshop are well formed', () => {
     });
     assert.strictEqual(gradient.transparency.length, 2);
 
-    if (!layer.mask) return;
-    const mask = A.maskGradientDescriptor(layer.name, layer.mask.stops);
-    assert.strictEqual(mask.colors.length, layer.mask.stops.length);
-    mask.colors.forEach((stop) => {
-      assert.strictEqual(stop.color.red, stop.color.grain, 'masks are neutral');
-      assert.strictEqual(stop.color.red, stop.color.blue);
-    });
   });
 });
 

@@ -4,10 +4,16 @@
  *
  * One gradient-map adjustment layer per light, each with the blend mode the
  * light was solved for and, where the light has a place in the frame, a mask
- * drawn with the gradient tool to the same geometry the panel previewed.  They
- * go in a group, in pass-through so they reach the whole picture, and the group
- * is what the panel looks for the next time round: regenerating replaces it in
- * place rather than piling a second one on top.
+ * whose pixels are the falloff the panel previewed.  They go in a group, in
+ * pass-through so they reach the whole picture, and the group is what the panel
+ * looks for the next time round: regenerating replaces it in place rather than
+ * piling a second one on top.
+ *
+ * Everything after a layer is made addresses it by id, and everything made is
+ * checked afterwards.  Both because the failures that matter here are silent
+ * ones: a command that lands on the wrong layer, or a blend mode that does not
+ * take, leaves a ramp built for hard light sitting in normal mode - and that
+ * replaces every tone in the drawing with mid grey.
  *
  * The whole thing is one modal execution with history suspended, so a rebuild
  * is a single undo and a single history state however many layers it made.
@@ -96,21 +102,6 @@
     };
   }
 
-  /** The falloff curve as a grey ramp for a layer mask. */
-  function maskGradientDescriptor(name, curve) {
-    return gradientDescriptor(name, curve.map(function (point) {
-      return { location: point.t, color: [point.value, point.value, point.value] };
-    }));
-  }
-
-  function point(x, y) {
-    return {
-      _obj: 'paint',
-      horizontal: { _unit: 'pixelsUnit', _value: x },
-      vertical: { _unit: 'pixelsUnit', _value: y }
-    };
-  }
-
   var TARGET_LAYER = { _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' };
 
   // -------------------------------------------------------------- commands
@@ -155,7 +146,7 @@
     return play(command);
   }
 
-  /** True when something is selected - the gradient tool would be clipped to it. */
+  /** True when something is selected - a new mask would be made from it. */
   async function hasSelection() {
     try {
       var result = await play({
@@ -205,17 +196,31 @@
     return activeLayerId();
   }
 
-  async function nameAndBlend(layer) {
-    return play({
-      _obj: 'set',
-      _target: [TARGET_LAYER],
-      to: {
-        _obj: 'layer',
-        name: layer.title || layer.name,
-        mode: { _enum: 'blendMode', _value: layer.blend },
-        opacity: { _unit: 'percentUnit', _value: 100 }
+  /**
+   * Name, blend mode and opacity, one property per command.
+   *
+   * One `set` carrying all three is not obviously wrong, and that is the
+   * trouble with it: if the host takes only the first, the layer ends up named
+   * correctly and in the wrong blend mode - and a ramp solved for hard light,
+   * laid down in normal, replaces every tone in the drawing with mid grey.
+   * Separate commands fail loudly instead, and `verify` below checks anyway.
+   */
+  async function nameAndBlend(id, layer) {
+    var target = [{ _ref: 'layer', _id: id }];
+    return play([
+      {
+        _obj: 'set', _target: target,
+        to: { _obj: 'layer', name: layer.title || layer.name }
+      },
+      {
+        _obj: 'set', _target: target,
+        to: { _obj: 'layer', mode: { _enum: 'blendMode', _value: layer.blend } }
+      },
+      {
+        _obj: 'set', _target: target,
+        to: { _obj: 'layer', opacity: { _unit: 'percentUnit', _value: 100 } }
       }
-    });
+    ]);
   }
 
   /**
@@ -223,52 +228,90 @@
    * adjustment layer does nothing at all, so it is off in every sense the
    * document has, and it is still there to be read back and switched on again.
    */
-  async function hideLayer() {
+  async function hideLayer(id) {
+    var target = [{ _ref: 'layer', _id: id }];
     try {
-      await play({ _obj: 'hide', 'null': [TARGET_LAYER] });
+      await play({ _obj: 'hide', 'null': target });
     } catch (e) {
       await play({
-        _obj: 'set',
-        _target: [TARGET_LAYER],
+        _obj: 'set', _target: target,
         to: { _obj: 'layer', visible: false }
       });
     }
   }
 
-  async function drawMask(layer) {
-    var mask = layer.mask;
+  /**
+   * Give the layer a mask and write the light's own falloff into it.
+   *
+   * The pixels go in through the imaging API rather than being drawn with the
+   * gradient tool.  Since Photoshop 2023 that tool makes a gradient *fill
+   * layer* instead of painting, which fills no masks and leaves an opaque
+   * gradient lying across the artwork; and pixels mean the mask is the very
+   * function the panel previewed rather than an approximation of it in
+   * gradient stops.
+   */
+  async function paintMask(id, light, frame) {
+    var imaging = PS.imaging();
+    if (!imaging || !imaging.putLayerMask || !imaging.createImageDataFromBuffer) {
+      throw new Error('this version of Photoshop cannot be handed mask pixels');
+    }
     await play({
       _obj: 'make',
       new: { _class: 'channel' },
       at: { _ref: 'channel', _enum: 'channel', _value: 'mask' },
       using: { _enum: 'userMaskEnabled', _value: 'revealAll' }
     });
-    await play({
-      _obj: 'select',
-      _target: [{ _ref: 'channel', _enum: 'channel', _value: 'mask' }],
-      makeVisible: false
-    });
-    await play({
-      _obj: 'gradientClassEvent',
-      from: point(mask.from.x, mask.from.y),
-      to: point(mask.to.x, mask.to.y),
-      type: { _enum: 'gradientType', _value: mask.type },
-      // A soft falloff across a few thousand pixels is exactly the case that
-      // bands in 8 bits.
-      dither: true,
-      gradient: maskGradientDescriptor(layer.name + ' falloff', mask.stops),
-      mode: { _enum: 'blendMode', _value: 'normal' },
-      opacity: { _unit: 'percentUnit', _value: 100 }
-    });
-    // Leave the layer itself targeted, not its mask: the next thing the painter
-    // does should land where they expect it to.
-    try {
-      await play({
-        _obj: 'select',
-        _target: [{ _ref: 'channel', _enum: 'channel', _value: 'RGB' }],
-        makeVisible: false
+
+    var width = Math.max(1, Math.round(frame.width));
+    var height = Math.max(1, Math.round(frame.height));
+    var imageData = await imaging.createImageDataFromBuffer(
+      OKScheme.maskPixels(light, { width: width, height: height }),
+      {
+        width: width, height: height,
+        components: 1, chunky: false,
+        colorProfile: 'Gray Gamma 2.2', colorSpace: 'Grayscale'
       });
-    } catch (e) { /* nothing depends on it */ }
+    var options = { layerID: id, imageData: imageData };
+    var open = PS.activeDocument();
+    if (open && open.id) options.documentID = open.id;
+    try {
+      await imaging.putLayerMask(options);
+    } finally {
+      try { imageData.dispose(); } catch (e) { /* already gone */ }
+    }
+  }
+
+  /**
+   * Check that Photoshop made what it was asked for.
+   *
+   * Both of these have been wrong in the field and neither announces itself:
+   * an adjustment layer of the wrong class, and a blend mode that did not take.
+   * The second is the dangerous one - the ramps are mid grey wherever a light
+   * does nothing, because mid grey is what "leave this tone alone" looks like
+   * to the contrast modes, so the same ramp in normal mode flattens the whole
+   * drawing to grey.  Better to stop and say so than to leave that behind.
+   */
+  async function verify(id, layer) {
+    var made;
+    try {
+      var result = await play({ _obj: 'get', _target: [{ _ref: 'layer', _id: id }] });
+      made = result && result[0];
+    } catch (e) {
+      return null; // cannot look; the build is no worse for trying
+    }
+    if (!made) return null;
+
+    var adjustment = made.adjustment && made.adjustment[0];
+    var kind = adjustment && adjustment._obj;
+    if (kind && kind !== 'gradientMapClass') {
+      throw new Error('Photoshop made a ' + kind + ' where a gradient map was asked for');
+    }
+    var mode = made.mode && made.mode._value;
+    if (mode && mode !== layer.blend) {
+      throw new Error('"' + layer.name + '" came out in ' + mode +
+        ' rather than ' + layer.blend + ', which would flatten the drawing');
+    }
+    return { kind: kind, mode: mode };
   }
 
   // -------------------------------------------------------------- grouping
@@ -283,14 +326,16 @@
       from: TARGET_LAYER,
       using: { _obj: 'layerSection', name: name }
     });
+    var id = await activeLayerId();
     await play({
       _obj: 'set',
-      _target: [TARGET_LAYER],
+      _target: [{ _ref: 'layer', _id: id }],
       // Pass-through, so the adjustments reach the drawing under the group
-      // rather than only each other.
+      // rather than only each other.  A group left in normal mode would isolate
+      // them and the pass would do nothing at all.
       to: { _obj: 'layer', mode: { _enum: 'blendMode', _value: 'passThrough' } }
     });
-    return activeLayerId();
+    return id;
   }
 
   /**
@@ -332,6 +377,16 @@
    * @returns {Promise<{groupId:number, layerIds:number[], replaced:boolean,
    *                    name:string, deselected:boolean}>}
    */
+  /** Undo a half-built stack, layer by layer, without giving up on the first failure. */
+  async function discard(ids) {
+    for (var i = ids.length - 1; i >= 0; i--) {
+      try {
+        await play({ _obj: 'delete', _target: [{ _ref: 'layer', _id: ids[i] }] });
+      } catch (e) { /* it may already be gone; keep going */ }
+    }
+    ids.length = 0;
+  }
+
   async function generate(plan, options) {
     options = options || {};
     if (!PS.available()) throw new Error('Photoshop is not available');
@@ -342,8 +397,9 @@
     var result = { groupId: 0, layerIds: [], replaced: !!previousId, name: plan.name };
 
     await PS.modal(plan.name, async function () {
-      // A live selection would clip every mask gradient to itself.  Dropping it
-      // is part of the same history step, so undo puts it back.
+      // A new mask is made from whatever is selected, so a live selection would
+      // cut every one of them to its own shape.  Dropping it is part of the same
+      // history step, so undo puts it back.
       result.deselected = await hasSelection();
       if (result.deselected) await deselect();
 
@@ -351,13 +407,26 @@
       // about to replace leaves the new one exactly where the old one stood.
       if (previousId) await selectLayer(previousId);
 
-      for (var i = 0; i < plan.layers.length; i++) {
-        var layer = plan.layers[i];
-        var id = await makeGradientMapLayer(layer);
-        await nameAndBlend(layer);
-        if (layer.mask) await drawMask(layer);
-        if (layer.visible === false) await hideLayer();
-        result.layerIds.push(id);
+      try {
+        for (var i = 0; i < plan.layers.length; i++) {
+          var layer = plan.layers[i];
+          var id = await makeGradientMapLayer(layer);
+          // Written down before it is finished, so that a failure part way
+          // through setting it up can still take it back.
+          result.layerIds.push(id);
+          // Everything after the make addresses the layer by its id rather than
+          // by whatever happens to be selected, so nothing that changes the
+          // selection behind our back can send a command to the wrong layer.
+          await nameAndBlend(id, layer);
+          if (layer.mask) await paintMask(id, layer.mask, plan.frame);
+          await verify(id, layer);
+          if (layer.visible === false) await hideLayer(id);
+        }
+      } catch (e) {
+        // A build that stopped half way is worse than one that did not start:
+        // take back what was made and leave the document as it was found.
+        await discard(result.layerIds);
+        throw e;
       }
 
       if (plan.layers.length > 1) {
@@ -380,7 +449,6 @@
     rgbDescriptor: rgbDescriptor,
     colorStops: colorStops,
     gradientDescriptor: gradientDescriptor,
-    maskGradientDescriptor: maskGradientDescriptor,
     findPrevious: findPrevious,
     findAny: findAny,
     generate: generate
