@@ -45,6 +45,37 @@ test('the contrast modes are all neutral at mid grey, normal is not', () => {
   assert.strictEqual(B.modes.normal.neutral(0.3), 0.3);
 });
 
+test('the neutral owes nothing to the working space', () => {
+  // Blending is arithmetic on whatever channel values the document holds -
+  // 2 * tone * 0.5 = tone is exact in sRGB and in ProPhoto alike - so mid grey
+  // is the neutral everywhere.  What the space decides is everything around it:
+  // which lightness a tone has, and how much chroma the gamut holds there.
+  C.spaceList.forEach((space) => {
+    for (let i = 0; i <= 20; i++) {
+      const tone = i / 20;
+      close(B.modes.hardLight.apply(tone, 0.5), tone, 0, space.id + ' at ' + tone);
+    }
+  });
+});
+
+test('a stop holds lightness in whichever space the document is', () => {
+  // Not only sRGB: every step from tone to target and back runs through the
+  // document's own primaries and transfer curve.
+  C.spaceList.forEach((space) => {
+    [0.2, 0.5, 0.8].forEach((L) => {
+      const gray = B.grayForLightness(space, L);
+      const solved = B.solveStop({
+        space, mode: B.modes.hardLight, base: [gray, gray, gray],
+        lightness: L, da: 0.05, db: -0.03, margin: 0.94
+      });
+      const result = solved.color.map((stop) => B.modes.hardLight.apply(gray, stop));
+      const lch = C.linearToOklch(space, ...C.decodeChannels(space, result));
+      close(lch[0], L, 1e-5, space.id + ' at L ' + L);
+      assert.ok(solved.chroma > 0.01, space.id + ' put some colour in');
+    });
+  });
+});
+
 test('soft light cannot reach as far as hard light', () => {
   // Soft light only spans g^2 .. sqrt(g); hard light spans the lot.
   const base = 0.5;

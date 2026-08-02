@@ -711,7 +711,30 @@
     // A scheme whose lights are all switched off still builds: the layers are
     // made and hidden, which is how the document holds on to them.
     return !!(state.document && state.document.hasDocument &&
-      state.document.modeId === 'RGBColor' && state.scheme.lights.length);
+      state.document.modeId === 'RGBColor' &&
+      state.document.depth !== 32 &&
+      state.scheme.lights.length);
+  }
+
+  /**
+   * What the panel has to assume about this document, and cannot check.
+   *
+   * The blend modes are solved on the values Photoshop blends: the document's
+   * own, carrying its own transfer curve.  Both things that break that
+   * assumption break it badly rather than slightly - mid grey stops meaning
+   * "leave this tone alone" - so they are worth saying out loud.
+   */
+  function documentWarning(info) {
+    if (info.depth === 32) {
+      return 'A 32-bit document is blended in linear light, where mid grey is ' +
+        'not the neutral these modes are solved for. Convert it to 16-bit.';
+    }
+    if (!OKColor.matchProfile(info.profile)) {
+      return 'The profile "' + (info.profile || 'none') + '" is not one the ' +
+        'panel knows, so it is working in sRGB. Lightness will hold less ' +
+        'exactly than the readout says.';
+    }
+    return '';
   }
 
   // ------------------------------------------------------------- Photoshop
@@ -733,6 +756,9 @@
       if (info.modeId !== 'RGBColor') {
         status('This is a ' + (info.mode || 'non-RGB') +
           ' document. Convert it to RGB and the panel can colour it.');
+      } else {
+        var warning = documentWarning(info);
+        if (warning) status(warning);
       }
     } else {
       state.key = '';

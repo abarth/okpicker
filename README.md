@@ -347,11 +347,31 @@ masked away, so it is the only safe thing for the rest to stand on. **Down** and
 
 ### Things worth knowing
 
-- **The document must be RGB.** A grayscale document cannot hold colour at all;
-  convert it to RGB first and the panel will say so until you do.
-- **The stops are the document's own values**, worked out in the working space
-  the panel matched from its ICC profile. A profile it does not recognise falls
-  back to sRGB, exactly as the picker does.
+- **The document must be RGB, and not 32-bit.** A grayscale document cannot
+  hold colour at all. A 32-bit one is blended in linear light, where mid grey
+  is not the neutral these modes are solved for — the whole pass would come out
+  about a stop and a quarter dark. The panel says so and leaves **Build** off
+  in both cases.
+- **What the blend modes assume.** The solve is arithmetic on the values
+  Photoshop blends: the document's own channel values, carrying the document's
+  own transfer curve. The neutral itself does not depend on the working space —
+  hard light's identity is `2 · tone · 0.5 = tone`, exact on whatever numbers
+  are being blended, in sRGB or ProPhoto alike. What does depend on it is
+  everything around the neutral: which OKLab lightness a tone *has*, how much
+  chroma the gamut holds there, and what the target encodes to. Those are all
+  computed in the space the panel matched from the document's ICC profile.
+- **An unrecognised profile falls back to sRGB**, as it does in the picker, and
+  the panel now says when that happens. It is not fatal, because the blend
+  inverse stays exact either way — the error is in the target rather than the
+  arithmetic, so it grows with chroma rather than wrecking the tone. Measured
+  over the built-in palettes: correctly identified, every space holds lightness
+  to 0.2–0.3%; taken for sRGB instead, Display P3 costs nothing (it shares the
+  curve), Adobe RGB 1.2%, Rec. 2020 1.6%, and ProPhoto 3.3% — the last with
+  chroma overshooting badly, since sRGB's limits are nothing like ProPhoto's.
+- **One assumption the panel cannot check**: Photoshop's *Blend RGB Colors
+  Using Gamma* setting, in Color Settings → Advanced. It is off by default and
+  should stay off. Turned on, blending happens in linear light and a mid-grey
+  stop darkens everything by about 1.2 stops instead of leaving it alone.
 - **An active selection is dropped** before the layers are made — Photoshop
   builds a new layer mask out of whatever is selected, which would cut every
   one of them to that shape. It happens inside the same history step, so undo
