@@ -401,6 +401,20 @@ subtree into whichever node arrives — accepting either shape of lifecycle
 argument, since manifest v4 and v5 differ on it, and leaving the document alone
 when no node ever comes.
 
+The hand-over is the part worth knowing about, because getting it wrong shows up
+as a plugin with nothing in it. `uxp.entrypoints.setup` may be called **once**,
+and that once has to carry **every** panel the manifest declares: it throws both
+on a second call and on data that does not match. A plugin that registers its
+panels one file at a time therefore ends up with none of them, and since a
+plugin with more than one panel is no longer shown the document's body, both
+panels come up blank. So `src/dom.js` collects the panels as they mount and
+hands them over together, in a task queued from `DOMContentLoaded` — after every
+script in the document has run, and after any panel that mounts in a
+`DOMContentLoaded` handler of its own. A microtask is not late enough: each
+script tag is its own turn and microtasks drain at the end of each one, so a
+microtask armed by the first panel's script fires before the second panel's
+script has been read.
+
 ## Licence
 
 Apache 2.0 — see [LICENSE](LICENSE).

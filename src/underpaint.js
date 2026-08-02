@@ -852,8 +852,8 @@
   // ----------------------------------------------------------------- setup
 
   function init() {
-    var root = doc.getElementById('paint');
-    if (!root) return;
+    if (!claimPanel()) return;
+
     build(root);
     state.selected = state.scheme.lights.length ? state.scheme.lights[0].id : '';
 
@@ -872,10 +872,6 @@
       window.addEventListener('resize', onResize);
     }
 
-    var mount = OKDom.mountPanel(PS, 'okpicker.underpaint', root, {
-      show: function () { refreshDocument(); }
-    });
-
     if (PS.available()) {
       PS.onDocumentChange(function () { refreshDocument(); });
       refreshDocument();
@@ -885,13 +881,37 @@
     }
 
     // Outside Photoshop every panel in the document is on screen at once.
-    if (!mount.registered) {
+    if (!PS.panelsSupported()) {
       OKDom.devSwitcher([
         { label: 'Picker', el: doc.getElementById('root') },
         { label: 'Underpaint', el: root, onShow: requestRender }
       ]);
     }
   }
+
+  /**
+   * Take the panel entry point, before this panel has any contents.
+   *
+   * The plugin's panels are registered in a single call - see `registerPanels`
+   * in ps.js - so a panel that never mounts costs the other one its entry point
+   * as well.  Mounting first and building afterwards means a panel Photoshop
+   * creates early, or a controller that falls over on the way up, still leaves
+   * both entry points registered.  The contents land in the same element either
+   * way, whether Photoshop has taken it by then or not.
+   */
+  var root = null;
+
+  function claimPanel() {
+    if (root) return root;
+    root = doc.getElementById('paint');
+    if (!root) return null;
+    OKDom.mountPanel(PS, 'okpicker.underpaint', root, {
+      show: function () { refreshDocument(); }
+    });
+    return root;
+  }
+
+  claimPanel();
 
   if (doc.readyState === 'loading') {
     doc.addEventListener('DOMContentLoaded', init);

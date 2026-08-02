@@ -311,15 +311,30 @@
     return { name: file.name, text: await file.read() };
   }
 
-  /** Register the panel entry point so Photoshop can drive its lifecycle. */
-  function registerPanel(id, handlers) {
-    if (!uxp || !uxp.entrypoints || !uxp.entrypoints.setup) return false;
-    var panels = {};
-    panels[id] = handlers;
+  function panelsSupported() {
+    return !!(uxp && uxp.entrypoints && uxp.entrypoints.setup);
+  }
+
+  var panelsRegistered = false;
+
+  /**
+   * Register every panel the plugin has, in one call.
+   *
+   * `setup` may be called exactly once, and the once has to cover every entry
+   * point the manifest declares - it throws both on a second call and on data
+   * that does not match.  A plugin with two panels that registers them one at a
+   * time therefore ends up with neither, and because a plugin with more than
+   * one panel is no longer shown the document's body, neither panel has
+   * anything in it at all.  Hence one call, with all of them, from one place.
+   */
+  function registerPanels(panels) {
+    if (!panelsSupported() || panelsRegistered) return false;
     try {
       uxp.entrypoints.setup({ panels: panels });
+      panelsRegistered = true;
       return true;
     } catch (e) {
+      console.error('okpicker: Photoshop refused the panel entry points', e);
       return false;
     }
   }
@@ -339,6 +354,7 @@
     onSwatchChange: onSwatchChange,
     saveAs: saveAs,
     openFile: openFile,
-    registerPanel: registerPanel
+    panelsSupported: panelsSupported,
+    registerPanels: registerPanels
   };
 });

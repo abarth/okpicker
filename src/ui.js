@@ -482,6 +482,7 @@
     };
     els.tracks = [els.lTrack, els.cTrack, els.hTrack];
 
+    claimPanel();
     surfaces.plot = new Surface($('plotSurface'));
     surfaces.l = new Surface($('lTrackSurface'));
     surfaces.c = new Surface($('cTrackSurface'));
@@ -504,11 +505,27 @@
       });
     }
     syncFromHost();
+  }
 
-    mount = OKDom.mountPanel(PS, 'okpicker.panel', els.root, {
+  /**
+   * Take the panel entry point, as early as the markup allows.
+   *
+   * Early because Photoshop can create a panel that was left docked open before
+   * the document has finished loading, and a panel it creates before the plugin
+   * has registered is a panel with nothing in it.  The scripts are at the end
+   * of the body, so the element is normally already there when this runs; if it
+   * is not, `init` tries again.
+   */
+  function claimPanel() {
+    if (mount) return;
+    var root = $('root');
+    if (!root) return;
+    mount = OKDom.mountPanel(PS, 'okpicker.panel', root, {
       show: function () { relayout(); syncFromHost(); }
     });
   }
+
+  claimPanel();
 
   if (doc.readyState === 'loading') {
     doc.addEventListener('DOMContentLoaded', init);

@@ -125,6 +125,16 @@
     return null;
   }
 
+  // Every panel in the plugin has to be handed over in one call, so they are
+  // collected here and passed on together.  See `registerPanels` in ps.js for
+  // what happens to a plugin that registers them one at a time.  They are kept
+  // rather than consumed: a panel that mounts late arms another hand-over, and
+  // that one carries all of them again rather than only the latecomer.
+  var panels = {};
+  var panelHost = null;
+  var unsent = false;
+  var scheduled = false;
+
   /**
    * Hand `element` to the panel entry point `id`.
    *
@@ -132,6 +142,11 @@
    * the markup leaves the body of its own accord and nothing has to be hidden
    * or torn down.  A host that never offers one - a browser, where there is no
    * UXP at all - simply leaves the document as it was written.
+   *
+   * Registration does not happen here: it is queued until every panel has
+   * mounted, and `flushPanels` sends them.  Mount before building a panel's
+   * contents rather than after, so that a controller that falls over on the way
+   * up does not take the other panel's entry point down with it.
    *
    * @returns {{registered: boolean, host: function}} `host` is the node the
    *          panel was given, or null while the document is standing on its
@@ -151,7 +166,10 @@
       if (element.parentNode !== node) node.appendChild(element);
     }
 
-    var registered = PS.registerPanel(id, {
+    panelHost = PS;
+    unsent = true;
+    scheduleFlush();
+    panels[id] = {
       create: function (a, b) {
         attach(panelNode(a, b));
         if (hooks.create) hooks.create();
@@ -168,12 +186,46 @@
       destroy: function () {
         if (hooks.destroy) hooks.destroy();
       }
-    });
+    };
 
     return {
-      registered: registered,
+      registered: PS.panelsSupported(),
       host: function () { return host; }
     };
+  }
+
+  /**
+   * Wait until every panel in the document has had its chance to mount, then
+   * hand them all over at once.
+   *
+   * The waiting is the whole point, because there is only ever one hand-over: a
+   * plugin gets a single `setup` call and it has to carry every panel the
+   * manifest declares.  So the moment has to be one that nothing can precede.
+   *
+   *   - Not a microtask.  Each script tag is its own turn and microtasks drain
+   *     at the end of each one, so a microtask armed by the first panel's
+   *     script runs before the second panel's script has even been read - and
+   *     hands over half a plugin.
+   *   - DOMContentLoaded is after every classic script has run, but panels can
+   *     also mount *in* a DOMContentLoaded handler, and this one was registered
+   *     before theirs.
+   *   - A task queued from there is after all of those handlers, which is late
+   *     enough for everything and no later.
+   */
+  function scheduleFlush() {
+    if (scheduled || !doc) return;
+    scheduled = true;
+    function soon() { setTimeout(flushPanels, 0); }
+    if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', soon);
+    else soon();
+  }
+
+  /** Send every panel mounted so far to the host.  Safe to call more than once. */
+  function flushPanels() {
+    scheduled = false;
+    if (!unsent || !panelHost) return false;
+    unsent = false;
+    return panelHost.registerPanels(panels);
   }
 
   /**
@@ -214,6 +266,7 @@
     bindDrag: bindDrag,
     panelNode: panelNode,
     mountPanel: mountPanel,
+    flushPanels: flushPanels,
     devSwitcher: devSwitcher
   };
 });
