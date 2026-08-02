@@ -205,6 +205,7 @@ them, and **chroma** scales the lot.
 | The frame | Where the light falls, on a stand-in drawing running light at the top to dark at the bottom. Drag a light's handle to move it — a ring shows how far a disc reaches, a dot on the edge shows which way a wash comes from. Click anywhere else to move the probe the strip is read at. |
 | The list | Every light in the scheme, bottom layer first. Click to select, click the *on* / *off* at the right to switch one out without deleting it. |
 | **Build** | Makes the layers. |
+| **From layers** | Reads the scheme back out of the layers already in the document. |
 
 **Build** puts one gradient-map adjustment layer in the document per light, in
 the blend mode that light was solved for, masked to where it falls. More than
@@ -221,15 +222,63 @@ the level above the gradients.
 ### The scheme is the document
 
 What you edit is a small object — a name, two scheme-wide knobs, and a list of
-lights — and it is saved for you against the document you are working on, in the
-plugin's data folder, keyed to the file's path. Re-open the drawing a week later
-and the lighting scheme is there, ready to be argued with. **Save…** and
-**Load…** write the same thing to a `.json` file you can keep next to the
-artwork or hand to somebody else.
+lights — and it is kept in three places, because each one survives something the
+others do not.
 
-It cannot live *inside* the PSD — a UXP plugin has no way to put it there — so a
-document that moves to another machine arrives with its layers but not its
-scheme. The layers still work; they are ordinary gradient maps.
+**In the layer names.** Every layer the panel builds is called what the light is
+called, followed by the light itself:
+
+```
+Street lamp [oklch1 k=lamp h=196 c=0.1 t=all r=0.5 g=rad x=0.24 y=0.6 z=0.36 f=0.85]
+```
+
+and the group carries what applies to all of them:
+
+```
+Neon night [oklch1 pl=neon bl=hard ch=1.15 hu=25]
+```
+
+A UXP plugin has no way to write anything of its own inside a PSD, and layer
+names are the one field that both travels with the file and can be read back —
+so this is the copy that survives being handed to somebody else, or being opened
+on a machine that has never seen the document before. **From layers** reads it,
+and so does opening a document the panel has nothing else saved for. Each layer
+carries its own light rather than the group carrying all of them, which is what
+makes it scale: the whole scheme on one name would run out of room at about four
+lights.
+
+The fields are named rather than positional so the result is something you can
+read — and change — in the Layers panel: set `h=196` to `h=210` by hand, press
+**From layers**, and the panel has it. Anything it does not recognise is
+ignored, so a light from a later version of the plugin degrades to its defaults
+rather than failing, and a layer renamed past recognition drops out of the
+scheme instead of breaking the rest of it. Renaming the readable half is free —
+`the street lamp [oklch1 …]` is still that light, now called that.
+
+| | | | |
+| --- | --- | --- | --- |
+| `k` | kind | `h` | hue |
+| `c` | chroma | `t` | tones |
+| `r` | reach | `g` | shape |
+| `x` `y` | place | `z` | size |
+| `f` | falloff | `a` | angle |
+| `b` | blend, when the light overrides the scheme's | | |
+| `pl` | palette | `bl` | blend |
+| `ch` | chroma, whole scheme | `hu` | hue shift |
+
+Everything in a scheme is held to a step finer than the panel can show — a
+degree of hue, a thousandth of chroma, a thousandth of the frame — so this round
+trip is exact rather than nearly exact.
+
+**In the plugin's data folder**, keyed to the document's path, saved as you
+work. This is the copy that is ahead of the others: it has the edits you have
+made but not built yet, and the lights you have switched off, which produce no
+layer to be written into. It wins on re-opening a document unless it points at a
+group that is no longer there — which is how a file that arrived from somewhere
+else falls through to reading its own layers.
+
+**In a file of your own**, via **Save…** and **Load…**: the same thing as JSON,
+to keep next to the artwork or to reuse on another painting.
 
 ### How the lightness survives
 
@@ -298,6 +347,9 @@ masked away, so it is the only safe thing for the rest to stand on. **Down** and
 - **An active selection is dropped** before the masks are drawn — the gradient
   tool would otherwise clip every one of them to it. That happens inside the
   same history step, so undo puts the selection back.
+- **A light switched off makes no layer**, so it is not in the copy the document
+  carries. Reading a scheme back out of the layers gives you the lights that are
+  there; the panel's own saved copy is the one that remembers the rest.
 - The layers are ordinary gradient maps and ordinary masks. Nothing about them
   depends on the panel: open one in the gradient editor and edit it by hand if
   you like. Building again will overwrite it, so keep hand edits above the
@@ -331,7 +383,7 @@ between them; in Photoshop that bar is never built.
 | `src/ps.js` | Host bridge: document, swatches, notifications, modal execution, the layer tree, the plugin's data folder. |
 | `src/ui.js` | The picker: state, the foreground binding, repaint scheduling, layout. |
 | `src/blend.js` | Blend modes forwards and backwards, and the stop solver that holds lightness. No DOM. |
-| `src/scheme.js` | The lighting scheme: kinds, tonal profiles, mask shapes, palettes, serialisation. No DOM, no Photoshop. |
+| `src/scheme.js` | The lighting scheme: kinds, tonal profiles, mask shapes, palettes, and both of its written forms — JSON, and the tokens in the layer names. No DOM, no Photoshop. |
 | `src/gradient.js` | The compiler: a scheme in, gradients and mask geometry out, plus the simulation the previews are drawn from. |
 | `src/apply.js` | Building the plan in the document: adjustment layers, masks, grouping, replacing what was there before. |
 | `src/underpaint.js` | The underpaint panel: its markup, its two previews and its controls. |

@@ -44,6 +44,10 @@
   margin-right: 0;
 }
 
+.paintfoot .row:last-child {
+  margin-bottom: 0;
+}
+
 .paint .heading {
   margin: 10px 0 4px;
   font-size: 10px;
@@ -339,6 +343,13 @@
 
 body.dev {
   padding-top: 0;
+}
+
+/* The bar costs the panel below it its own height, or the page ends up taller
+   than the window and the bar scrolls off the top of the thing it controls. */
+body.dev #root,
+body.dev .paint {
+  height: calc(100% - 26px);
 }
 
 .devbar {

@@ -361,8 +361,11 @@
     var actions = make('div', 'row', foot);
     els.build = button(actions, 'Build', 'Make the layers in the document', run);
     els.build.className = 'button primary';
-    button(actions, 'Save…', 'Write this scheme to a file', save);
-    button(actions, 'Load…', 'Read a scheme from a file', load);
+    var files = make('div', 'row', foot);
+    button(files, 'Save…', 'Write this scheme to a file', save);
+    button(files, 'Load…', 'Read a scheme from a file', load);
+    els.reread = button(files, 'From layers',
+      'Read the scheme back out of the layers in this document', reread);
   }
 
   function onText(input, handler) {
@@ -756,6 +759,37 @@
     return 'scheme-' + stem + '-' + hash.toString(16) + '.json';
   }
 
+  /**
+   * The scheme written into this document's own layer names, if there is one.
+   *
+   * The names are the only copy that travels inside the PSD, so this is how a
+   * document that arrives from somewhere else - or from a machine whose data
+   * folder is not this one - gives its lighting up.  Photoshop lists layers top
+   * first and the panel lists lights bottom first, hence the reversal.
+   */
+  function readDocument() {
+    if (!PS.available()) return null;
+    var node = OKApply.findAny(
+      state.scheme.groupId, state.scheme.groupName || state.scheme.name);
+    if (!node) return null;
+    var names = node.group
+      ? node.layers.map(function (child) { return child.name; }).reverse()
+      : [node.name];
+    var scheme = OKScheme.fromLayerNames(node.name, names);
+    if (!scheme) return null;
+    scheme.groupId = node.id;
+    scheme.groupName = OKScheme.displayName(node.name);
+    return scheme;
+  }
+
+  function useScheme(scheme, message) {
+    state.scheme = scheme;
+    state.selected = scheme.lights.length ? scheme.lights[0].id : '';
+    compiled = null;
+    status(message);
+    requestRender();
+  }
+
   var saveTimer = null;
 
   function scheduleSave() {
@@ -767,16 +801,37 @@
     }, 600);
   }
 
+  /**
+   * Pick up whatever this document already has to say about its lighting.
+   *
+   * There can be two copies and they can disagree.  The one in the plugin's
+   * data folder is the newer of the two whenever the panel has been edited
+   * without building, so it wins - but only while the layers it describes are
+   * still there.  If they are not, either this document came from somewhere
+   * else or somebody has been rearranging, and the document itself is the
+   * better witness.
+   */
   async function loadForDocument() {
+    var saved = null;
     var text = await PS.readData(state.key);
-    if (!text) return;
-    try {
-      var scheme = OKScheme.parse(text);
-      state.scheme = scheme;
-      state.selected = scheme.lights.length ? scheme.lights[0].id : '';
-      compiled = null;
-      status('Picked up the scheme saved for this document.');
-    } catch (e) {
+    if (text) {
+      try { saved = OKScheme.parse(text); } catch (e) { saved = null; }
+    }
+    var built = readDocument();
+    // A saved scheme that points at a group which is no longer here is the one
+    // case where it cannot be trusted over the document: the file has been
+    // somewhere else, or somebody has been rearranging.  A saved scheme that
+    // was never built points at nothing yet and is simply work in progress.
+    var stale = saved && saved.groupId &&
+      !OKApply.findPrevious(saved.groupId, saved.groupName);
+
+    if (saved && !stale) {
+      useScheme(saved, 'Picked up the scheme saved for this document.');
+    } else if (built) {
+      useScheme(built, 'Read the lighting scheme out of this document\'s layers.');
+    } else if (saved) {
+      useScheme(saved, 'Picked up the scheme saved for this document.');
+    } else if (text) {
       status('The scheme saved for this document could not be read.');
     }
   }
@@ -793,7 +848,8 @@
         groupName: state.scheme.groupName || plan.name
       });
       state.scheme.groupId = result.groupId;
-      state.scheme.groupName = plan.name;
+      // What it ended up called, which for a lone layer is the light's name.
+      state.scheme.groupName = result.name;
       scheduleSave();
       var count = plan.layers.length;
       status((result.replaced ? 'Rebuilt ' : 'Built ') + count +
@@ -816,6 +872,20 @@
       if (name) status('Saved to ' + name + '.');
     } catch (e) {
       status('Could not save: ' + ((e && e.message) || e));
+    }
+  }
+
+  function reread() {
+    var scheme = readDocument();
+    if (scheme) {
+      useScheme(scheme, 'Read ' + scheme.lights.length +
+        (scheme.lights.length === 1 ? ' light' : ' lights') + ' out of "' +
+        (scheme.groupName || scheme.name) + '".');
+      scheduleSave();
+    } else {
+      status(PS.available()
+        ? 'Nothing in this document\'s layers to read: build a scheme first, or one of them has been renamed.'
+        : 'Photoshop is not here, so there are no layers to read.');
     }
   }
 

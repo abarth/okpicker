@@ -46,6 +46,25 @@
     return typeof n === 'number' && isFinite(n) ? n : fallback;
   }
 
+  /**
+   * Everything in a scheme is held to a step, and every step is finer than the
+   * panel can show or the eye can see: a degree of hue, a thousandth of chroma,
+   * a thousandth of the frame.  It keeps normalising idempotent, it keeps the
+   * saved forms tidy, and it is what lets a scheme survive a round trip through
+   * a layer name without drifting.
+   *
+   * Rounded through a decimal string rather than by dividing: a thousandth is
+   * not a binary fraction, so multiplying one back leaves 0.344 as
+   * 0.34400000000000003, which is not a number anybody wants to read in a file.
+   */
+  function step(value, decimals) {
+    return Number(value.toFixed(decimals));
+  }
+
+  function degrees(value) {
+    return Math.round(wrapHue(value)) % 360;
+  }
+
   // --------------------------------------------------------- tonal profiles
   // Where in the value range a light lives.  `reach` is one slider: how far the
   // light spreads from its home end of the range towards the other.  Weights
@@ -351,16 +370,16 @@
       id: typeof light.id === 'string' && light.id ? light.id : 'l' + ((index || 0) + 1) + '-' + kind.id,
       name: typeof light.name === 'string' && light.name ? light.name : kind.label,
       kind: kind.id,
-      hue: wrapHue(num(light.hue, 250)),
-      chroma: clamp(num(light.chroma, 0.08), 0, CHROMA_MAX),
+      hue: degrees(num(light.hue, 250)),
+      chroma: step(clamp(num(light.chroma, 0.08), 0, CHROMA_MAX), 3),
       tone: getTone(light.tone === undefined ? kind.defaults.tone : light.tone).id,
-      reach: clamp01(num(light.reach, 0.5)),
+      reach: step(clamp01(num(light.reach, 0.5)), 2),
       shape: getShape(light.shape === undefined ? kind.defaults.shape : light.shape).id,
-      x: clamp(num(light.x, 0.5), -0.5, 1.5),
-      y: clamp(num(light.y, 0.4), -0.5, 1.5),
-      size: clamp(num(light.size, 0.35), 0.02, 2),
-      softness: clamp(num(light.softness, 0.8), 0.02, 1),
-      angle: wrapHue(num(light.angle, 135)),
+      x: step(clamp(num(light.x, 0.5), -0.5, 1.5), 3),
+      y: step(clamp(num(light.y, 0.4), -0.5, 1.5), 3),
+      size: step(clamp(num(light.size, 0.35), 0.02, 2), 3),
+      softness: step(clamp(num(light.softness, 0.8), 0.02, 1), 2),
+      angle: degrees(num(light.angle, 135)),
       blend: typeof light.blend === 'string' ? light.blend : '',
       enabled: light.enabled !== false
     };
@@ -392,8 +411,8 @@
       name: typeof s.name === 'string' && s.name.trim() ? s.name.trim() : 'Underpainting',
       palette: typeof s.palette === 'string' ? s.palette : '',
       blend: typeof s.blend === 'string' && s.blend ? s.blend : 'hardLight',
-      chroma: clamp(num(s.chroma, 1), 0, 2),
-      hueShift: wrapHue(num(s.hueShift, 0)),
+      chroma: step(clamp(num(s.chroma, 1), 0, 2), 2),
+      hueShift: degrees(num(s.hueShift, 0)),
       lights: lights.map(function (light, i) { return normaliseLight(light, i); }),
       groupId: num(s.groupId, 0) || 0,
       groupName: typeof s.groupName === 'string' ? s.groupName : ''
@@ -421,6 +440,194 @@
   /** The saved form: the scheme itself under a key that names the format. */
   function stringify(scheme) {
     return JSON.stringify({ okpaint: normalise(scheme) }, null, 2) + '\n';
+  }
+
+  // ------------------------------------------------------------ layer names
+  // The other place a scheme is kept: written into the names of the layers it
+  // made.  A UXP plugin cannot put anything of its own inside a PSD, and layer
+  // names are the one field that both travels with the file and can be read
+  // back, so a document handed to somebody else arrives with its lighting
+  // intact rather than with a stack of gradients nobody can edit.
+  //
+  // Each layer carries its own light and the group carries what applies to all
+  // of them, which is why it scales: the whole scheme on one name would run out
+  // of room at about four lights.  Fields are named rather than positional so
+  // that the result is something a person can read - and change - in the
+  // Layers panel, and anything unrecognised is ignored, so a light from a
+  // later version degrades to its defaults instead of failing.
+
+  var TOKEN = 'oklch1';
+  var TOKEN_RE = /\[oklch1((?:\s+[A-Za-z]{1,2}=[^\s\]]*)*)\s*\]\s*$/;
+  // Photoshop takes long layer names but not unbounded ones, and a name cut off
+  // at the end would take the token with it.  The display half gives way first.
+  var MAX_NAME = 250;
+
+  var KIND_CODES = { ambient: 'amb', sun: 'sun', lamp: 'lamp', spot: 'spot' };
+  var TONE_CODES = { shadow: 'sh', mid: 'mid', light: 'hi', all: 'all' };
+  var SHAPE_CODES = { none: 'no', radial: 'rad', linear: 'lin' };
+  var BLEND_CODES = {
+    softLight: 'soft', overlay: 'ovl', hardLight: 'hard',
+    linearLight: 'lin', normal: 'norm'
+  };
+
+  function invert(codes) {
+    var out = {};
+    for (var key in codes) {
+      if (Object.prototype.hasOwnProperty.call(codes, key)) out[codes[key]] = key;
+    }
+    return out;
+  }
+
+  var KIND_IDS = invert(KIND_CODES);
+  var TONE_IDS = invert(TONE_CODES);
+  var SHAPE_IDS = invert(SHAPE_CODES);
+  var BLEND_IDS = invert(BLEND_CODES);
+
+  /** A number with no more digits than it needs: 0.100 -> 0.1, 155.0 -> 155. */
+  function shortNumber(value, decimals) {
+    var text = value.toFixed(decimals);
+    if (text.indexOf('.') < 0) return text;
+    return text.replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function token(fields) {
+    return '[' + TOKEN + (fields.length ? ' ' + fields.join(' ') : '') + ']';
+  }
+
+  /** Name plus token, trimmed to something Photoshop will keep whole. */
+  function withToken(name, fields) {
+    var suffix = token(fields);
+    var room = MAX_NAME - suffix.length - 1;
+    var display = (name || '').trim();
+    if (display.length > room) display = display.slice(0, Math.max(0, room)).trim();
+    return display ? display + ' ' + suffix : suffix;
+  }
+
+  /** The name without its token: what the layer is called, as opposed to what it is. */
+  function displayName(name) {
+    if (typeof name !== 'string') return '';
+    return name.replace(TOKEN_RE, '').trim();
+  }
+
+  function hasToken(name) {
+    return typeof name === 'string' && TOKEN_RE.test(name);
+  }
+
+  /** `{display, fields}` for a name the panel wrote, or null for any other name. */
+  function readName(name) {
+    if (typeof name !== 'string') return null;
+    var match = TOKEN_RE.exec(name);
+    if (!match) return null;
+    var fields = {};
+    match[1].trim().split(/\s+/).forEach(function (pair) {
+      if (!pair) return;
+      var split = pair.indexOf('=');
+      if (split > 0) fields[pair.slice(0, split)] = pair.slice(split + 1);
+    });
+    return { display: name.slice(0, match.index).trim(), fields: fields };
+  }
+
+  /** One light, as fields.  A single letter each; there are a lot of them. */
+  function lightFields(light) {
+    var fields = [
+      'k=' + KIND_CODES[light.kind],
+      'h=' + light.hue,
+      'c=' + shortNumber(light.chroma, 3),
+      't=' + TONE_CODES[light.tone],
+      'r=' + shortNumber(light.reach, 2),
+      'g=' + SHAPE_CODES[light.shape]
+    ];
+    if (light.shape === 'radial') {
+      fields.push('x=' + shortNumber(light.x, 3));
+      fields.push('y=' + shortNumber(light.y, 3));
+      fields.push('z=' + shortNumber(light.size, 3));
+    }
+    if (light.shape === 'linear') fields.push('a=' + light.angle);
+    if (light.shape !== 'none') fields.push('f=' + shortNumber(light.softness, 2));
+    if (light.blend) fields.push('b=' + BLEND_CODES[light.blend]);
+    return fields;
+  }
+
+  /** What applies to the whole scheme.  Two letters each, so the two sets can
+   *  share a token without ever meaning each other. */
+  function schemeFields(scheme) {
+    var fields = [];
+    if (scheme.palette) fields.push('pl=' + scheme.palette);
+    fields.push('bl=' + BLEND_CODES[scheme.blend]);
+    fields.push('ch=' + shortNumber(scheme.chroma, 2));
+    fields.push('hu=' + scheme.hueShift);
+    return fields;
+  }
+
+  /** What one light's layer is called. */
+  function lightName(light) {
+    return withToken(light.name, lightFields(light));
+  }
+
+  /** What the group is called: the scheme's name, and what applies to all of it. */
+  function schemeName(scheme) {
+    return withToken(scheme.name, schemeFields(scheme));
+  }
+
+  /**
+   * A scheme with one light in it makes one layer and no group, so that layer
+   * has to carry both halves.  The two field sets were named to allow it.
+   */
+  function soloName(scheme, light) {
+    return withToken(light.name, lightFields(light).concat(schemeFields(scheme)));
+  }
+
+  function fromFields(fields, key, table, fallback) {
+    var code = fields[key];
+    return (code !== undefined && table[code]) || fallback;
+  }
+
+  /** One light, read back out of its layer's name. */
+  function lightFromName(name, index) {
+    var read = readName(name);
+    if (!read) return null;
+    var f = read.fields;
+    var light = makeLight(fromFields(f, 'k', KIND_IDS, 'ambient'), { name: read.display });
+    if (f.h !== undefined) light.hue = num(f.h, light.hue);
+    if (f.c !== undefined) light.chroma = num(f.c, light.chroma);
+    if (f.t !== undefined) light.tone = fromFields(f, 't', TONE_IDS, light.tone);
+    if (f.r !== undefined) light.reach = num(f.r, light.reach);
+    if (f.g !== undefined) light.shape = fromFields(f, 'g', SHAPE_IDS, light.shape);
+    if (f.x !== undefined) light.x = num(f.x, light.x);
+    if (f.y !== undefined) light.y = num(f.y, light.y);
+    if (f.z !== undefined) light.size = num(f.z, light.size);
+    if (f.a !== undefined) light.angle = num(f.a, light.angle);
+    if (f.f !== undefined) light.softness = num(f.f, light.softness);
+    light.blend = fromFields(f, 'b', BLEND_IDS, '');
+    light.id = 'doc' + (index || 0) + '-' + light.kind;
+    return normaliseLight(light, index);
+  }
+
+  /**
+   * A whole scheme, read back out of the document.
+   *
+   * `layerNames` is bottom of the stack first, the order the panel lists them
+   * in.  A layer somebody renamed past recognition is skipped rather than
+   * guessed at; if none of them are readable there was no scheme here.
+   */
+  function fromLayerNames(groupName, layerNames) {
+    var lights = [];
+    (layerNames || []).forEach(function (name) {
+      var light = lightFromName(name, lights.length);
+      if (light) lights.push(light);
+    });
+    if (!lights.length) return null;
+
+    var read = readName(groupName);
+    var fields = read ? read.fields : {};
+    return normalise({
+      name: read ? read.display : displayName(groupName),
+      palette: fields.pl || '',
+      blend: fromFields(fields, 'bl', BLEND_IDS, 'hardLight'),
+      chroma: fields.ch === undefined ? 1 : num(fields.ch, 1),
+      hueShift: fields.hu === undefined ? 0 : num(fields.hu, 0),
+      lights: lights
+    });
   }
 
   function addLight(scheme, kindId) {
@@ -522,6 +729,17 @@
     clone: clone,
     parse: parse,
     stringify: stringify,
+
+    TOKEN: TOKEN,
+    MAX_NAME: MAX_NAME,
+    lightName: lightName,
+    schemeName: schemeName,
+    soloName: soloName,
+    displayName: displayName,
+    hasToken: hasToken,
+    readName: readName,
+    lightFromName: lightFromName,
+    fromLayerNames: fromLayerNames,
 
     addLight: addLight,
     removeLight: removeLight,

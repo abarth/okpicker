@@ -17,13 +17,17 @@
  */
 (function (root, factory) {
   var ps = root.OKPhotoshop;
-  if (!ps && typeof require === 'function' && typeof module === 'object') ps = require('./ps.js');
-  var api = factory(ps);
+  var scheme = root.OKScheme;
+  if (typeof require === 'function' && typeof module === 'object') {
+    if (!ps) ps = require('./ps.js');
+    if (!scheme) scheme = require('./scheme.js');
+  }
+  var api = factory(ps, scheme);
   root.OKApply = api;
   if (typeof module === 'object' && typeof module.exports === 'object') {
     module.exports = api;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (PS) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (PS, OKScheme) {
 
   var RAMP = 4096;   // Photoshop's gradient location scale
 
@@ -207,7 +211,7 @@
       _target: [TARGET_LAYER],
       to: {
         _obj: 'layer',
-        name: layer.name,
+        name: layer.title || layer.name,
         mode: { _enum: 'blendMode', _value: layer.blend },
         opacity: { _unit: 'percentUnit', _value: 100 }
       }
@@ -284,7 +288,21 @@
       if (byId) return byId;
     }
     if (!name) return null;
-    return PS.findLayer(function (node) { return node.name === name; });
+    // By what the layer is called, not by its whole name: the scheme written
+    // after it changes with every edit, and a group is still the same group.
+    return PS.findLayer(function (node) {
+      return OKScheme.displayName(node.name) === name;
+    });
+  }
+
+  /**
+   * Any group or layer in the document that the panel wrote, whether or not
+   * this session is the one that wrote it.  How a document that arrives from
+   * somewhere else gives its lighting scheme up.
+   */
+  function findAny(groupId, name) {
+    return findPrevious(groupId, name) ||
+      PS.findLayer(function (node) { return OKScheme.hasToken(node.name); });
   }
 
   // ------------------------------------------------------------- generate
@@ -325,10 +343,11 @@
       }
 
       if (plan.layers.length > 1) {
-        result.groupId = await groupLayers(result.layerIds, plan.name);
+        result.groupId = await groupLayers(result.layerIds, plan.title || plan.name);
       } else {
         // One layer is not a folder full of anything.
         result.groupId = result.layerIds[0];
+        result.name = plan.layers[0].name;
         await selectLayer(result.groupId);
       }
 
@@ -345,6 +364,7 @@
     gradientDescriptor: gradientDescriptor,
     maskGradientDescriptor: maskGradientDescriptor,
     findPrevious: findPrevious,
+    findAny: findAny,
     generate: generate
   };
 });

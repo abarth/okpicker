@@ -231,6 +231,9 @@
       return {
         id: light.id,
         name: light.name,
+        // What the layer is actually called: the name, and the light written
+        // out after it so the document carries its own lighting scheme.
+        title: OKScheme.lightName(light),
         blend: gradient.mode.ps,
         hue: gradient.hue,
         peak: gradient.peak,
@@ -239,8 +242,13 @@
         mask: maskGeometry(light, frame)
       };
     });
+    // One light makes one layer and no group to hang the scheme on, so that
+    // layer's name carries both halves of it.
+    if (layers.length === 1) layers[0].title = OKScheme.soloName(scheme, lights[0]);
+
     return {
       name: scheme.name || 'Underpainting',
+      title: OKScheme.schemeName(scheme),
       // Bottom of the stack first, which is the order Photoshop wants them made
       // in, the order the panel lists them in, and the order they were compiled
       // in: the first light is the one everything else sits on top of.

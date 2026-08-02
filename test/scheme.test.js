@@ -190,6 +190,121 @@ test('a light switched off is not an active light', () => {
   assert.strictEqual(S.activeLights(scheme).length, scheme.lights.length - 1);
 });
 
+test('every value in a scheme sits on a step it can be written down at', () => {
+  const scheme = S.normalise({
+    chroma: 1.23456, hueShift: 40.7,
+    lights: [{ kind: 'lamp', hue: 78.213, chroma: 0.0834567, reach: 0.5551,
+      x: 0.38472, y: 0.5211, size: 0.34449, softness: 0.8551, angle: 154.6 }]
+  });
+  const light = scheme.lights[0];
+  assert.strictEqual(scheme.chroma, 1.23);
+  assert.strictEqual(scheme.hueShift, 41);
+  assert.strictEqual(light.hue, 78);
+  assert.strictEqual(light.chroma, 0.083);
+  assert.strictEqual(light.reach, 0.56);
+  assert.strictEqual(light.x, 0.385);
+  assert.strictEqual(light.size, 0.344);
+  assert.strictEqual(light.softness, 0.86);
+  assert.strictEqual(light.angle, 155);
+  assert.deepStrictEqual(S.normalise(scheme), scheme, 'and stays there');
+});
+
+test('a light survives the round trip through a layer name', () => {
+  S.palettes.forEach((palette) => {
+    S.create(palette.id).lights.forEach((light) => {
+      const name = S.lightName(light);
+      const back = S.lightFromName(name, 0);
+      assert.ok(back, palette.id + ': ' + name);
+      // Ids are the panel's own business and are minted fresh on the way back.
+      const drop = (l) => Object.assign({}, l, { id: null });
+      assert.deepStrictEqual(drop(back), drop(light), name);
+      assert.strictEqual(S.lightName(back), name, 'and writes itself the same way');
+    });
+  });
+});
+
+test('a whole scheme survives the round trip through its layers', () => {
+  S.palettes.forEach((palette) => {
+    const scheme = S.create(palette.id);
+    scheme.hueShift = 35;
+    scheme.chroma = 1.4;
+    const normalised = S.normalise(scheme);
+    const back = S.fromLayerNames(
+      S.schemeName(normalised), normalised.lights.map(S.lightName));
+
+    assert.ok(back, palette.id);
+    assert.strictEqual(back.name, normalised.name);
+    assert.strictEqual(back.palette, normalised.palette);
+    assert.strictEqual(back.blend, normalised.blend);
+    assert.strictEqual(back.chroma, normalised.chroma);
+    assert.strictEqual(back.hueShift, normalised.hueShift);
+    assert.strictEqual(back.lights.length, normalised.lights.length);
+    back.lights.forEach((light, i) => {
+      const drop = (l) => Object.assign({}, l, { id: null });
+      assert.deepStrictEqual(drop(light), drop(normalised.lights[i]), palette.id + ' light ' + i);
+    });
+  });
+});
+
+test('a lone layer carries the scheme as well as the light', () => {
+  const scheme = S.normalise({
+    name: 'Dusk', palette: 'sunset', blend: 'softLight', chroma: 1.3, hueShift: 20,
+    lights: [{ kind: 'sun', name: 'Key', hue: 60, chroma: 0.09, blend: 'overlay' }]
+  });
+  const name = S.soloName(scheme, scheme.lights[0]);
+  const back = S.fromLayerNames(name, [name]);
+  assert.strictEqual(back.blend, 'softLight');
+  assert.strictEqual(back.chroma, 1.3);
+  assert.strictEqual(back.hueShift, 20);
+  assert.strictEqual(back.palette, 'sunset');
+  assert.strictEqual(back.lights[0].blend, 'overlay', 'the light keeps its own');
+  assert.strictEqual(back.lights[0].hue, 60);
+});
+
+test('the name a person reads is separable from the part they do not', () => {
+  const light = S.create('candle').lights[1];
+  const name = S.lightName(light);
+  assert.ok(name.startsWith(light.name + ' ['), 'the name comes first: ' + name);
+  assert.strictEqual(S.displayName(name), light.name);
+  assert.ok(S.hasToken(name));
+
+  // Renaming the layer keeps the light; deleting the token gives it up.
+  const renamed = 'The candle ' + name.slice(name.indexOf('['));
+  assert.strictEqual(S.lightFromName(renamed, 0).name, 'The candle');
+  assert.strictEqual(S.lightFromName('The candle', 0), null);
+  assert.strictEqual(S.displayName('An ordinary layer'), 'An ordinary layer');
+  assert.strictEqual(S.hasToken('An ordinary layer'), false);
+});
+
+test('a name Photoshop will keep whole', () => {
+  const light = S.normaliseLight({ kind: 'lamp', name: 'x'.repeat(400) });
+  const name = S.lightName(light);
+  assert.ok(name.length <= S.MAX_NAME, 'trimmed to ' + name.length);
+  assert.ok(S.hasToken(name), 'and it is the display half that gave way');
+  assert.strictEqual(S.lightFromName(name, 0).kind, 'lamp');
+});
+
+test('a token from a later version degrades instead of failing', () => {
+  const light = S.lightFromName('Sun [oklch1 k=sun h=200 zz=novel q=3 t=bogus]', 0);
+  assert.strictEqual(light.kind, 'sun');
+  assert.strictEqual(light.hue, 200);
+  assert.strictEqual(light.tone, 'light', 'an unreadable value falls back to the kind default');
+  assert.strictEqual(light.name, 'Sun');
+});
+
+test('lights are read in the order they are handed over', () => {
+  const scheme = S.create('neon');
+  const names = scheme.lights.map(S.lightName);
+  const back = S.fromLayerNames(S.schemeName(scheme), names);
+  assert.deepStrictEqual(back.lights.map((l) => l.name), scheme.lights.map((l) => l.name));
+  assert.notStrictEqual(back.lights[0].id, back.lights[1].id, 'with ids of their own');
+});
+
+test('nothing readable means there was no scheme there', () => {
+  assert.strictEqual(S.fromLayerNames('Some group', ['Layer 1', 'Layer 2']), null);
+  assert.strictEqual(S.fromLayerNames('', []), null);
+});
+
 test('hue names cover the circle', () => {
   for (let h = 0; h < 360; h += 7) {
     assert.strictEqual(typeof S.hueName(h), 'string');
