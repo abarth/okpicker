@@ -4,8 +4,12 @@
   <meta charset="utf-8">
   <title>OKLCH</title>
   <link rel="stylesheet" href="src/styles.css">
+  <link rel="stylesheet" href="src/underpaint.css">
 </head>
 <body>
+  <!-- One document, two panels.  Photoshop hands each entry point its own root
+       node and src/dom.js moves the matching subtree into it; opened straight
+       in a browser nothing moves and a switcher appears instead. -->
   <div id="root">
 
     <div id="plotrow" class="plotrow">
@@ -36,10 +40,20 @@
 
   </div>
 
+  <!-- Built by src/underpaint.js: most of it is a list of lights that comes and
+       goes, and one description of the panel beats two. -->
+  <div id="paint" class="paint"></div>
+
   <script src="src/color.js"></script>
   <script src="src/png.js"></script>
   <script src="src/render.js"></script>
   <script src="src/ps.js"></script>
+  <script src="src/dom.js"></script>
+  <script src="src/blend.js"></script>
+  <script src="src/scheme.js"></script>
+  <script src="src/gradient.js"></script>
+  <script src="src/apply.js"></script>
   <script src="src/ui.js"></script>
+  <script src="src/underpaint.js"></script>
 </body>
 </html>

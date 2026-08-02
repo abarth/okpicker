@@ -12,10 +12,13 @@
 (function () {
 
   var OKColor = globalThis.OKColor;
-  var OKPng = globalThis.OKPng;
   var OKRender = globalThis.OKRender;
+  var OKDom = globalThis.OKDom;
   var PS = globalThis.OKPhotoshop;
   var doc = document;
+
+  var Surface = OKDom.Surface;
+  var bindDrag = OKDom.bindDrag;
 
   function $(id) { return doc.getElementById(id); }
   function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
@@ -25,58 +28,6 @@
   var raf = (typeof requestAnimationFrame === 'function')
     ? requestAnimationFrame
     : function (fn) { return setTimeout(fn, 16); };
-
-  // ------------------------------------------------------------- surfaces
-  // UXP's canvas implementation has improved a lot but is still worth probing
-  // for: if it round-trips a putImageData we use it, otherwise we fall back to
-  // an <img> fed with an inline PNG, which works everywhere.
-
-  var canvasProbe = null;
-
-  function canvasSupported() {
-    if (canvasProbe !== null) return canvasProbe;
-    canvasProbe = false;
-    try {
-      var c = doc.createElement('canvas');
-      c.width = 2;
-      c.height = 2;
-      var ctx = c.getContext('2d');
-      if (ctx && ctx.createImageData && ctx.putImageData && ctx.getImageData) {
-        var id = ctx.createImageData(2, 2);
-        id.data[0] = 12; id.data[1] = 34; id.data[2] = 56; id.data[3] = 255;
-        ctx.putImageData(id, 0, 0);
-        var back = ctx.getImageData(0, 0, 1, 1).data;
-        canvasProbe = back[0] === 12 && back[1] === 34 && back[2] === 56 && back[3] === 255;
-      }
-    } catch (e) {
-      canvasProbe = false;
-    }
-    return canvasProbe;
-  }
-
-  function Surface(container) {
-    this.kind = canvasSupported() ? 'canvas' : 'img';
-    this.el = doc.createElement(this.kind === 'canvas' ? 'canvas' : 'img');
-    container.appendChild(this.el);
-  }
-
-  Surface.prototype.paint = function (img) {
-    if (this.kind === 'canvas') {
-      var el = this.el;
-      // Assigning width/height wipes the bitmap, so only touch them when the
-      // pixel size really changed: otherwise every repaint would flash.
-      if (el.width !== img.width || el.height !== img.height) {
-        el.width = img.width;
-        el.height = img.height;
-      }
-      var ctx = el.getContext('2d');
-      var id = ctx.createImageData(img.width, img.height);
-      id.data.set(img.data);
-      ctx.putImageData(id, 0, 0);
-    } else {
-      this.el.setAttribute('src', OKPng.dataUri(img.data, img.width, img.height));
-    }
-  };
 
   // ---------------------------------------------------------------- state
 
@@ -245,41 +196,6 @@
       OKColor.describe(activeSpace(), state.L, state.C, state.H).displayHex;
   }
 
-  // ------------------------------------------------------------ interaction
-
-  function bindDrag(el, onMove, onEnd) {
-    function fractions(e) {
-      var r = el.getBoundingClientRect();
-      return {
-        x: r.width ? (e.clientX - r.left) / r.width : 0,
-        y: r.height ? (e.clientY - r.top) / r.height : 0
-      };
-    }
-    var moving = false;
-
-    function move(e) {
-      if (!moving) return;
-      onMove(fractions(e));
-    }
-
-    function up() {
-      if (!moving) return;
-      moving = false;
-      doc.removeEventListener('mousemove', move, true);
-      doc.removeEventListener('mouseup', up, true);
-      if (onEnd) onEnd();
-    }
-
-    el.addEventListener('mousedown', function (e) {
-      if (e.button !== undefined && e.button !== 0) return;
-      moving = true;
-      if (e.preventDefault) e.preventDefault();
-      onMove(fractions(e));
-      doc.addEventListener('mousemove', move, true);
-      doc.addEventListener('mouseup', up, true);
-    });
-  }
-
   // ------------------------------------------------------------- Photoshop
 
   var pushInFlight = false;
@@ -420,6 +336,7 @@
   ];
 
   var layoutSizes = { plotW: 180, plotH: 180, aspect: 1, track: 15 };
+  var mount = null;
 
   /** Height of everything under the diagram, for one set of metrics. */
   function chromeHeight(d) {
@@ -431,9 +348,20 @@
    * independent of what we have already drawn will do: measuring our own
    * content and then sizing the content to the measurement would ratchet the
    * panel smaller on every pass.  `body` is the last resort for that reason.
+   *
+   * The node Photoshop gave the panel comes first, because a plugin with more
+   * than one panel has one document across all of them and the window is no
+   * longer any single one of them.  It is only trusted when it reports
+   * something smaller than the window, which is the shape a real dock has.
    */
   function viewportHeight() {
-    if (typeof window !== 'undefined' && window.innerHeight > 0) return window.innerHeight;
+    var outer = typeof window !== 'undefined' && window.innerHeight > 0 ? window.innerHeight : 0;
+    var node = mount && mount.host();
+    if (node) {
+      var panel = node.clientHeight || 0;
+      if (panel > 40 && (!outer || panel <= outer)) return panel;
+    }
+    if (outer) return outer;
     var de = doc.documentElement;
     if (de && de.clientHeight > 0) return de.clientHeight;
     if (doc.body && doc.body.clientHeight > 0) return doc.body.clientHeight;
@@ -577,11 +505,8 @@
     }
     syncFromHost();
 
-    PS.registerPanel('okpicker.panel', {
-      create: function () {},
-      show: function () { relayout(); syncFromHost(); },
-      hide: function () {},
-      destroy: function () {}
+    mount = OKDom.mountPanel(PS, 'okpicker.panel', els.root, {
+      show: function () { relayout(); syncFromHost(); }
     });
   }
 

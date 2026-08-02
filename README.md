@@ -1,12 +1,55 @@
-# OKLCH — a colour picker for Photoshop
+# OKLCH — colour tools for Photoshop
 
-A UXP panel for Adobe Photoshop that picks colours in **OKLCH** — the perceptual
-lightness / chroma / hue model — and shows you exactly which of those colours
-fit inside the current document's colour space.
+Two UXP panels for Adobe Photoshop built on **OKLCH**, the perceptual
+lightness / chroma / hue model.
+
+- **OKLCH** picks colours, and shows you exactly which of them fit inside the
+  current document's colour space.
+- **OKLCH Underpaint** takes a finished value drawing into colour: you describe
+  the light in the scene and it builds the gradient maps and masks that put it
+  there, without moving a single value.
 
 ![The panel](docs/panel.png)
 
-## What it gives you
+## Requirements
+
+- Photoshop 2026 (version 27) — the manifest accepts 26.0.0 and up, so
+  Photoshop 2025 works too.
+- Nothing else. There is no build step and there are no dependencies; the
+  plugin is plain HTML, CSS and JavaScript.
+
+## Installing
+
+### With the UXP Developer Tool (recommended while iterating)
+
+1. Install the [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)
+   and start Photoshop.
+2. In UDT, **Add Plugin…** and select this repository's `manifest.json`.
+3. Press **Load**. Both panels appear under **Plugins → OKLCH**.
+
+`Load` again after editing a file, or use UDT's **Watch** to reload on save.
+
+### Manually
+
+Copy the whole repository into Photoshop's developer plugin folder and restart
+Photoshop:
+
+| Platform | Folder |
+| --- | --- |
+| macOS | `~/Library/Application Support/Adobe/UXP/Plugins/External/okpicker` |
+| Windows | `%APPDATA%\Adobe\UXP\Plugins\External\okpicker` |
+
+Loading unpackaged plugins requires developer mode: in the Creative Cloud
+desktop app, **Preferences → Apps → Enable "Allow plugins from unknown
+sources"** (Photoshop's **Plugins → Plugins Panel** lists what it found).
+
+To hand the plugin to someone who is not a developer, package it as a `.ccx`
+with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
+(`upia package .`); the layout here is already what UPIA expects.
+
+## The picker
+
+### What it gives you
 
 - **It *is* the foreground colour.** The panel is bound to Photoshop's
   foreground swatch in both directions: move anything in the picker and the
@@ -40,43 +83,7 @@ fit inside the current document's colour space.
   left, so a tall dock gets a balanced picture rather than a pool of empty space
   under the controls.
 
-## Requirements
-
-- Photoshop 2026 (version 27) — the manifest accepts 26.0.0 and up, so
-  Photoshop 2025 works too.
-- Nothing else. There is no build step and there are no dependencies; the
-  plugin is plain HTML, CSS and JavaScript.
-
-## Installing
-
-### With the UXP Developer Tool (recommended while iterating)
-
-1. Install the [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)
-   and start Photoshop.
-2. In UDT, **Add Plugin…** and select this repository's `manifest.json`.
-3. Press **Load**. The panel appears under **Plugins → OKLCH**.
-
-`Load` again after editing a file, or use UDT's **Watch** to reload on save.
-
-### Manually
-
-Copy the whole repository into Photoshop's developer plugin folder and restart
-Photoshop:
-
-| Platform | Folder |
-| --- | --- |
-| macOS | `~/Library/Application Support/Adobe/UXP/Plugins/External/okpicker` |
-| Windows | `%APPDATA%\Adobe\UXP\Plugins\External\okpicker` |
-
-Loading unpackaged plugins requires developer mode: in the Creative Cloud
-desktop app, **Preferences → Apps → Enable "Allow plugins from unknown
-sources"** (Photoshop's **Plugins → Plugins Panel** lists what it found).
-
-To hand the plugin to someone who is not a developer, package it as a `.ccx`
-with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
-(`upia package .`); the layout here is already what UPIA expects.
-
-## Using it
+### Using it
 
 | Control | What it does |
 | --- | --- |
@@ -89,7 +96,7 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 Both the diagram and the tracks write straight through to the foreground
 swatch, live, while you drag.
 
-## How the gamut is computed
+### How the gamut is computed
 
 OKLab is defined against linear sRGB at D65. For any other working space the
 panel builds the RGB→XYZ matrix from the space's primaries and white point,
@@ -153,35 +160,192 @@ it gets a smaller badge.
   the notification its own write comes back as, so the two directions of the
   binding cannot chase each other.
 
+## The underpaint panel
+
+This one is for a single step of a painting: the pass where a finished value
+drawing becomes colour. The usual way to do it is a stack of gradient maps in
+hard light or soft light, each masked to a part of the picture — warm where the
+light falls, cool where it does not — and the fiddly part is not the idea, it is
+the bookkeeping. Every gradient has to be built by hand, every mask drawn by
+hand, and changing your mind about the time of day means doing all of it again.
+
+The panel is that step at the level you actually think about it. You describe
+the light: a cool ambient filling the shadows, a warm sun coming in from the
+upper left, a lamp over here reaching about this far. It writes the gradient
+maps and the masks.
+
+### What a light is
+
+Three things, and each one becomes a different part of the layer stack.
+
+| | | Becomes |
+| --- | --- | --- |
+| **Colour** | an OKLCH hue and chroma — no lightness, because lightness belongs to the drawing | the colours in the gradient |
+| **Tones** | the part of the value range it lives in: shadows, midtones, lights, or all of them, and how far it reaches | the shape of the gradient |
+| **Place** | everywhere, a disc around a point, or a wash in from one side | the layer mask |
+
+Four kinds set sensible defaults for all three. **Ambient** is everywhere and
+fills the shadows — sky, room, the light with no source. **Sun** is a wash from
+one direction that only shows where the drawing is already lit. **Lamp** is a
+source in the scene and colours everything within its reach. **Spot** is a local
+light that only catches the lit side of what it falls on. Each kind is a
+starting point; every one of the three parts stays editable afterwards.
+
+A **palette** is a whole rig of them — Golden hour, Overcast, Candlelight,
+Moonlight, Sunset, Studio, Underwater, Neon night — already placed and pointed
+at the right end of the value range. Two knobs move the whole scheme at once:
+**hue shift** rotates every light together, keeping the relationships between
+them, and **chroma** scales the lot.
+
+### Using it
+
+| Control | What it does |
+| --- | --- |
+| The strip at the top | The whole value range, put through the scheme. It is drawn at the point marked in the frame below, and dragging along it moves the value the frame is drawn at. |
+| The frame | Where the light falls, on a stand-in drawing running light at the top to dark at the bottom. Drag a light's handle to move it — a ring shows how far a disc reaches, a dot on the edge shows which way a wash comes from. Click anywhere else to move the probe the strip is read at. |
+| The list | Every light in the scheme, bottom layer first. Click to select, click the *on* / *off* at the right to switch one out without deleting it. |
+| **Build** | Makes the layers. |
+
+**Build** puts one gradient-map adjustment layer in the document per light, in
+the blend mode that light was solved for, masked to where it falls. More than
+one and they go in a group named after the scheme, in pass-through so they reach
+the drawing underneath. It is one history state, so one undo takes all of it
+back.
+
+Press it again and it *replaces* what it made rather than stacking a second copy
+on top: the group is tracked by layer id, which Photoshop keeps in the file, and
+by name if the id has gone. So the loop is press Build, look at the picture,
+move a light, press Build again — which is the whole point of designing this at
+the level above the gradients.
+
+### The scheme is the document
+
+What you edit is a small object — a name, two scheme-wide knobs, and a list of
+lights — and it is saved for you against the document you are working on, in the
+plugin's data folder, keyed to the file's path. Re-open the drawing a week later
+and the lighting scheme is there, ready to be argued with. **Save…** and
+**Load…** write the same thing to a `.json` file you can keep next to the
+artwork or hand to somebody else.
+
+It cannot live *inside* the PSD — a UXP plugin has no way to put it there — so a
+document that moves to another machine arrives with its layers but not its
+scheme. The layers still work; they are ordinary gradient maps.
+
+### How the lightness survives
+
+A gradient map over a grey underpainting is an unusually tractable thing. The
+ramp position Photoshop looks a stop up by *is* the tone underneath it, so for
+every stop the blend's base is known exactly — which means the blend can be run
+backwards. For a separable mode each channel is a one-dimensional equation:
+
+```
+result = mode.apply(base, stop)     ⟶     stop = mode.invert(base, result)
+```
+
+So the panel does not choose gradient colours and hope. It says what the
+*result* should be — this tone's own OKLab lightness, that hue, that much chroma
+— and solves for the stop that produces it. Every stop, in the document's own
+working space and encoded values, which is what Photoshop actually blends.
+
+That is also why the blend modes on offer are the ones they are. Multiply can
+only darken and screen can only lighten, so neither can hold lightness still
+while adding colour; asked to, they solve to no colour at all. What is left is
+**normal** plus the four contrast modes that pivot about mid grey — **soft
+light**, **overlay**, **hard light** and **linear light** — which differ in how
+far they can push before they run out of room. Chroma you ask for is a wish, not
+a promise: it is cut back to what the document's gamut holds at that lightness
+and then to what the mode can still reach from that tone, and the panel draws
+what survived rather than pretending. Soft light in the deep shadows is the
+extreme case; it can barely move at all.
+
+Stops are spaced evenly in *lightness* rather than along the value axis. The
+bottom of that axis is savagely compressed — the whole climb out of black is the
+first 3% of it — and a ramp sampled evenly across it puts one stop over the
+range where a colour cast is most visible. Photoshop lets a stop sit wherever it
+likes, so they go where the eye is. Both ends are eased to no chroma at all,
+because the gamut narrows to a point at black and at white and a light left
+riding the hull until it hits the end snaps to grey over the last few levels,
+which is a band you can see.
+
+### Stacking
+
+Layers above the first have two complications, and the panel solves both rather
+than living with them. A gradient map reads its input from the *luminosity* of
+the composite below it, so once a layer has put colour into the picture the next
+one up is no longer looking up the tone it was designed against; and its blend
+base is that composite rather than a flat grey. So the layers are compiled in
+order, bottom first, each one solved against what will actually be underneath
+it. Each light adds its own chroma to what the ones below put down and pins
+lightness back to the tone underneath — lights add up, and the drawing's values
+come through the whole pile.
+
+That is exact where every mask is fully open. Where one is not, the layer above
+is standing on something slightly different from what it was solved for. The
+panel measures the error and prints it under the strip — *value held to 0.2%* —
+and across the built-in palettes, at every mask coverage, the worst case is
+1.6%, which is four levels out of 255. This is also why the light that reaches
+everywhere belongs at the bottom of the stack: it is the one thing that is never
+masked away, so it is the only safe thing for the rest to stand on. **Down** and
+**Up** on a light move it, and the list is in stacking order.
+
+### Things worth knowing
+
+- **The document must be RGB.** A grayscale document cannot hold colour at all;
+  convert it to RGB first and the panel will say so until you do.
+- **The stops are the document's own values**, worked out in the working space
+  the panel matched from its ICC profile. A profile it does not recognise falls
+  back to sRGB, exactly as the picker does.
+- **An active selection is dropped** before the masks are drawn — the gradient
+  tool would otherwise clip every one of them to it. That happens inside the
+  same history step, so undo puts the selection back.
+- The layers are ordinary gradient maps and ordinary masks. Nothing about them
+  depends on the panel: open one in the gradient editor and edit it by hand if
+  you like. Building again will overwrite it, so keep hand edits above the
+  group — which is where the rest of the painting goes anyway.
+
 ## Development
 
 ```sh
-npm test        # colour maths, PNG encoder and renderer (node's test runner)
-npm run icons   # regenerate icons/ — they are rendered by the panel's own code
+npm test        # colour maths, blend inversion, lighting schemes, renderers
+npm run icons   # regenerate icons/ — they are rendered by the panels' own code
 ```
 
 `index.html` opens directly in a browser for UI work: the Photoshop bridge
-degrades to a no-op, so the panel starts on its default colour and writes go
-nowhere, but the diagram, the tracks and the swatch behave exactly as they do
-in Photoshop — including the way the layout compacts itself as you resize the
-window.
+degrades to a no-op, so the picker starts on its default colour and writes go
+nowhere, and the underpaint panel runs on a stand-in 4:3 frame with **Build**
+switched off — but everything else behaves exactly as it does in Photoshop,
+including the way the picker's layout compacts itself as you resize the window.
+Both panels are in the one document, so a switcher appears at the top to pick
+between them; in Photoshop that bar is never built.
 
 ### Layout
 
 | Path | Contents |
 | --- | --- |
-| `manifest.json` | UXP manifest (manifest version 5, panel entry point). |
-| `index.html` | Panel markup; loads the scripts below in order. |
+| `manifest.json` | UXP manifest (manifest version 5, two panel entry points). |
+| `index.html` | The picker's markup, an empty root for the underpaint panel, and the scripts in load order. |
 | `src/color.js` | OKLab/OKLCH, working-space matrices, transfer functions, gamut search, Lab, profile-name matching. No DOM. |
-| `src/render.js` | Pixel generators for the diagram and the ramps. |
+| `src/render.js` | Pixel generators: the gamut diagram, the axis ramps, colour strips and sampled fields. |
 | `src/png.js` | RGBA → PNG → data URI, for hosts without a working canvas. |
-| `src/ps.js` | Photoshop bridge: document profile, reading and writing swatches, notifications. |
-| `src/ui.js` | Panel state, the foreground binding, repaint scheduling, layout and event wiring. |
+| `src/dom.js` | Shared browser plumbing: the pixel surface, the drag binding, and mounting a subtree into the root node a panel entry point is given. |
+| `src/ps.js` | Host bridge: document, swatches, notifications, modal execution, the layer tree, the plugin's data folder. |
+| `src/ui.js` | The picker: state, the foreground binding, repaint scheduling, layout. |
+| `src/blend.js` | Blend modes forwards and backwards, and the stop solver that holds lightness. No DOM. |
+| `src/scheme.js` | The lighting scheme: kinds, tonal profiles, mask shapes, palettes, serialisation. No DOM, no Photoshop. |
+| `src/gradient.js` | The compiler: a scheme in, gradients and mask geometry out, plus the simulation the previews are drawn from. |
+| `src/apply.js` | Building the plan in the document: adjustment layers, masks, grouping, replacing what was there before. |
+| `src/underpaint.js` | The underpaint panel: its markup, its two previews and its controls. |
 | `test/` | Unit tests for everything above the DOM. |
 
-The renderer writes into an RGBA buffer and the panel decides where it goes: it
-probes the host's canvas by round-tripping a `putImageData`, and falls back to
-an `<img>` fed by the built-in PNG encoder if that probe fails.
+The renderers write into an RGBA buffer and the panels decide where it goes:
+they probe the host's canvas by round-tripping a `putImageData`, and fall back
+to an `<img>` fed by the built-in PNG encoder if that probe fails.
+
+A plugin with one panel shows it the document's body. With two, the host hands
+each entry point its own root node instead, and `src/dom.js` moves the matching
+subtree into whichever node arrives — accepting either shape of lifecycle
+argument, since manifest v4 and v5 differ on it, and leaving the document alone
+when no node ever comes.
 
 ## Licence
 

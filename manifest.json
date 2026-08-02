@@ -51,6 +51,47 @@
           "species": ["generic"]
         }
       ]
+    },
+    {
+      "type": "panel",
+      "id": "okpicker.underpaint",
+      "label": {
+        "default": "OKLCH Underpaint"
+      },
+      "minimumSize": {
+        "width": 220,
+        "height": 260
+      },
+      "maximumSize": {
+        "width": 1200,
+        "height": 2000
+      },
+      "preferredDockedSize": {
+        "width": 300,
+        "height": 720
+      },
+      "preferredFloatingSize": {
+        "width": 340,
+        "height": 760
+      },
+      "icons": [
+        {
+          "width": 23,
+          "height": 23,
+          "path": "icons/paint@1x.png",
+          "scale": [1],
+          "theme": ["darkest", "dark", "medium", "light", "lightest"],
+          "species": ["generic"]
+        },
+        {
+          "width": 46,
+          "height": 46,
+          "path": "icons/paint@2x.png",
+          "scale": [2],
+          "theme": ["darkest", "dark", "medium", "light", "lightest"],
+          "species": ["generic"]
+        }
+      ]
     }
   ],
   "icons": [

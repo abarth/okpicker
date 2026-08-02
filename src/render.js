@@ -254,6 +254,81 @@
     });
   }
 
+  // ---------------------------------------------------------- strips & fields
+  // Two general shapes the underpaint panel is built out of: a bar of colours
+  // worked out somewhere else, and a rectangle filled in by a callback.  The
+  // lighting maths lives in the panel, not here; these only put it on screen.
+
+  /**
+   * A horizontal bar interpolating a list of display colours.  The list is
+   * usually shorter than the bar is wide - a value ramp is expensive to
+   * simulate and cheap to interpolate - so it is stretched to fit.
+   *
+   * @param {object} opts
+   * @param {number[][]} opts.colors  RGB triples, 0..255, left to right
+   * @param {number} opts.width
+   * @param {number} opts.height
+   */
+  function colorStrip(opts) {
+    var colors = opts.colors;
+    var width = opts.width, height = opts.height;
+    var img = buffer(width, height);
+    var data = img.data;
+    var last = colors.length - 1;
+    var row = new Uint8Array(width * 3);
+
+    for (var x = 0; x < width; x++) {
+      var t = width > 1 ? (x / (width - 1)) * last : 0;
+      var i = t | 0;
+      if (i > last) i = last;
+      var j = i < last ? i + 1 : last;
+      var f = t - i;
+      var a = colors[i], b = colors[j];
+      row[x * 3] = a[0] + (b[0] - a[0]) * f;
+      row[x * 3 + 1] = a[1] + (b[1] - a[1]) * f;
+      row[x * 3 + 2] = a[2] + (b[2] - a[2]) * f;
+    }
+
+    for (var y = 0; y < height; y++) {
+      var base = y * width * 4;
+      for (var px = 0; px < width; px++) {
+        var o = base + px * 4;
+        data[o] = row[px * 3];
+        data[o + 1] = row[px * 3 + 1];
+        data[o + 2] = row[px * 3 + 2];
+        data[o + 3] = 255;
+      }
+    }
+    return img;
+  }
+
+  /**
+   * A rectangle whose every pixel is asked for.  `sample(fx, fy, out)` gets the
+   * position as fractions of the picture, with fy running down the way a canvas
+   * does, and writes an RGB triple into `out`.
+   */
+  function field(opts) {
+    var width = opts.width, height = opts.height;
+    var sample = opts.sample;
+    var img = buffer(width, height);
+    var data = img.data;
+    var out = [0, 0, 0];
+
+    for (var y = 0; y < height; y++) {
+      var fy = (y + 0.5) / height;
+      var base = y * width * 4;
+      for (var x = 0; x < width; x++) {
+        sample((x + 0.5) / width, fy, out);
+        var o = base + x * 4;
+        data[o] = out[0];
+        data[o + 1] = out[1];
+        data[o + 2] = out[2];
+        data[o + 3] = 255;
+      }
+    }
+    return img;
+  }
+
   // ------------------------------------------------------- plot <-> geometry
   // The plot window maps `bounds` onto the element exactly, so a colour at
   // (C, H) sits at these fractions of it and back again.
@@ -283,6 +358,8 @@
     lightnessRamp: lightnessRamp,
     chromaRamp: chromaRamp,
     hueRamp: hueRamp,
+    colorStrip: colorStrip,
+    field: field,
     markerFraction: markerFraction,
     fractionToCh: fractionToCh
   };

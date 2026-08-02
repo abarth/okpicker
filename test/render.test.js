@@ -21,6 +21,49 @@ function square(maxC) {
   return { aMin: -maxC, aMax: maxC, bMin: -maxC, bMax: maxC };
 }
 
+test('a colour strip stretches its samples across the width', () => {
+  const colors = [[0, 0, 0], [128, 64, 32], [255, 255, 255]];
+  const img = R.colorStrip({ colors, width: 21, height: 4 });
+
+  assert.strictEqual(img.width, 21);
+  assert.strictEqual(img.height, 4);
+  assert.deepStrictEqual(rgbAt(img, 0, 0), colors[0], 'first sample at the left');
+  assert.deepStrictEqual(rgbAt(img, 20, 3), colors[2], 'last sample at the right');
+  assert.deepStrictEqual(rgbAt(img, 10, 1), colors[1], 'and the middle one in the middle');
+  assert.strictEqual(alphaAt(img, 7, 2), 255, 'opaque throughout');
+
+  // Every row is the same, and the ramp only ever climbs.
+  for (let x = 1; x < img.width; x++) {
+    assert.deepStrictEqual(rgbAt(img, x, 0), rgbAt(img, x, 3), 'column ' + x);
+    assert.ok(rgbAt(img, x, 0)[0] >= rgbAt(img, x - 1, 0)[0], 'monotone at ' + x);
+  }
+});
+
+test('a colour strip of one colour is that colour', () => {
+  const img = R.colorStrip({ colors: [[10, 20, 30]], width: 5, height: 2 });
+  for (let x = 0; x < 5; x++) assert.deepStrictEqual(rgbAt(img, x, 0), [10, 20, 30]);
+});
+
+test('a field asks about the centre of every pixel', () => {
+  const seen = [];
+  const img = R.field({
+    width: 4,
+    height: 2,
+    sample(fx, fy, out) {
+      seen.push([fx, fy]);
+      out[0] = Math.round(fx * 255);
+      out[1] = Math.round(fy * 255);
+      out[2] = 7;
+    }
+  });
+
+  assert.strictEqual(seen.length, 8);
+  assert.deepStrictEqual(seen[0], [0.125, 0.25], 'first pixel is half a pixel in');
+  assert.deepStrictEqual(seen[7], [0.875, 0.75], 'and the last is half a pixel from the far edge');
+  assert.deepStrictEqual(rgbAt(img, 0, 0), [32, 64, 7]);
+  assert.strictEqual(alphaAt(img, 3, 1), 255);
+});
+
 test('encode255 tracks the exact sRGB transfer curve', () => {
   for (let i = 0; i <= 1000; i++) {
     const x = i / 1000;
