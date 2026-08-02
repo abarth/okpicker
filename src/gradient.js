@@ -148,11 +148,24 @@
     return cache[key];
   }
 
-  /** Compile every enabled light, bottom of the stack first. */
+  /**
+   * Compile every light, bottom of the stack first, one gradient each.
+   *
+   * A light that is switched off still gets one.  Its layer is built and hidden
+   * rather than left out, so the document keeps it - and it is solved against
+   * the lights below it as though it were on, so switching it back on in
+   * Photoshop gives what the panel designed rather than something stale.  What
+   * it does not do is join the stack the next light up is solved against: a
+   * hidden adjustment layer changes nothing.
+   */
   function compile(scheme, ctx) {
     var gradients = [];
-    OKScheme.activeLights(scheme).forEach(function (light) {
-      gradients.push(compileLight(scheme, light, ctx, gradients));
+    var below = [];
+    scheme.lights.forEach(function (light) {
+      var gradient = compileLight(scheme, light, ctx, below);
+      gradient.enabled = light.enabled;
+      gradients.push(gradient);
+      if (light.enabled) below.push(gradient);
     });
     return gradients;
   }
@@ -224,13 +237,16 @@
    * @param {object} frame  {width, height} of the document, in pixels
    */
   function plan(scheme, ctx, frame) {
-    var lights = OKScheme.activeLights(scheme);
+    var lights = scheme.lights;
     var gradients = compile(scheme, ctx);
     var layers = gradients.map(function (gradient, i) {
       var light = lights[i];
       return {
         id: light.id,
         name: light.name,
+        // Built either way; a light switched off is a layer switched off, which
+        // is how the document remembers it.
+        visible: light.enabled,
         // What the layer is actually called: the name, and the light written
         // out after it so the document carries its own lighting scheme.
         title: OKScheme.lightName(light),
@@ -270,6 +286,7 @@
   function composite(gradients, gray, weights) {
     var base = [gray, gray, gray];
     for (var i = 0; i < gradients.length; i++) {
+      if (gradients[i].enabled === false) continue;
       var amount = weights ? clamp01(weights[i]) : 1;
       if (amount <= 0) continue;
       // Photoshop hands a gradient map the luminosity of everything below it,
@@ -323,11 +340,11 @@
   }
 
   /**
-   * Mask coverage of every enabled light at a point in the frame, in the same
-   * order as `compile`.
+   * Mask coverage of every light at a point in the frame, in the same order as
+   * `compile` - switched-off ones included, so the two line up index for index.
    */
   function weightsAt(scheme, frame, fx, fy) {
-    return OKScheme.activeLights(scheme).map(function (light) {
+    return scheme.lights.map(function (light) {
       return OKScheme.maskWeight(light, fx, fy, frame);
     });
   }
@@ -346,9 +363,10 @@
     var base = [gray, gray, gray];
     var layers = [];
     for (var i = 0; i < gradients.length; i++) {
+      var on = gradients[i].enabled !== false;
       var color = sampleGradient(gradients[i], OKBlend.luminosity(base));
-      layers.push({ mode: gradients[i].mode, color: color });
-      base = OKBlend.over(gradients[i].mode, base, color, 1);
+      layers.push({ mode: gradients[i].mode, color: color, enabled: on });
+      if (on) base = OKBlend.over(gradients[i].mode, base, color, 1);
     }
     return { gray: gray, layers: layers };
   }
@@ -359,7 +377,9 @@
     out[0] = out[1] = out[2] = slice.gray;
     for (var i = 0; i < slice.layers.length; i++) {
       var amount = weights[i];
-      if (amount > 0) OKBlend.over(slice.layers[i].mode, out, slice.layers[i].color, amount, out);
+      if (amount > 0 && slice.layers[i].enabled) {
+        OKBlend.over(slice.layers[i].mode, out, slice.layers[i].color, amount, out);
+      }
     }
     return out;
   }

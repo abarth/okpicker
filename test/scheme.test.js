@@ -229,7 +229,7 @@ test('a whole scheme survives the round trip through its layers', () => {
     scheme.hueShift = 35;
     scheme.chroma = 1.4;
     const normalised = S.normalise(scheme);
-    const back = S.fromLayerNames(
+    const back = S.fromLayers(
       S.schemeName(normalised), normalised.lights.map(S.lightName));
 
     assert.ok(back, palette.id);
@@ -252,7 +252,7 @@ test('a lone layer carries the scheme as well as the light', () => {
     lights: [{ kind: 'sun', name: 'Key', hue: 60, chroma: 0.09, blend: 'overlay' }]
   });
   const name = S.soloName(scheme, scheme.lights[0]);
-  const back = S.fromLayerNames(name, [name]);
+  const back = S.fromLayers(name, [name]);
   assert.strictEqual(back.blend, 'softLight');
   assert.strictEqual(back.chroma, 1.3);
   assert.strictEqual(back.hueShift, 20);
@@ -295,14 +295,30 @@ test('a token from a later version degrades instead of failing', () => {
 test('lights are read in the order they are handed over', () => {
   const scheme = S.create('neon');
   const names = scheme.lights.map(S.lightName);
-  const back = S.fromLayerNames(S.schemeName(scheme), names);
+  const back = S.fromLayers(S.schemeName(scheme), names);
   assert.deepStrictEqual(back.lights.map((l) => l.name), scheme.lights.map((l) => l.name));
   assert.notStrictEqual(back.lights[0].id, back.lights[1].id, 'with ids of their own');
 });
 
 test('nothing readable means there was no scheme there', () => {
-  assert.strictEqual(S.fromLayerNames('Some group', ['Layer 1', 'Layer 2']), null);
-  assert.strictEqual(S.fromLayerNames('', []), null);
+  assert.strictEqual(S.fromLayers('Some group', [{ name: 'Layer 1' }, { name: 'Layer 2' }]), null);
+  assert.strictEqual(S.fromLayers('', []), null);
+});
+
+test('a hidden layer is a light switched off', () => {
+  const scheme = S.create('neon');
+  const layers = scheme.lights.map((light, i) => ({
+    name: S.lightName(light), visible: i !== 1
+  }));
+  const back = S.fromLayers(S.schemeName(scheme), layers);
+  assert.deepStrictEqual(back.lights.map((l) => l.enabled), [true, false, true]);
+  // And everything else about the light it was is still there to switch on.
+  assert.strictEqual(back.lights[1].hue, scheme.lights[1].hue);
+  assert.strictEqual(back.lights[1].name, scheme.lights[1].name);
+
+  // A layer with no visibility reported is one that is showing.
+  const plain = S.fromLayers('', [{ name: S.lightName(scheme.lights[0]) }]);
+  assert.strictEqual(plain.lights[0].enabled, true);
 });
 
 test('hue names cover the circle', () => {

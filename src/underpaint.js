@@ -85,7 +85,6 @@
   function changed(scheme) {
     if (scheme) state.scheme = scheme;
     compiled = null;
-    scheduleSave();
     requestRender();
   }
 
@@ -180,7 +179,6 @@
     // Both events, because hosts differ on which of them a text field sends.
     onText(els.name, function () {
       state.scheme.name = els.name.value;
-      scheduleSave();
     });
 
     els.palette = make('select', 'palette', head);
@@ -478,7 +476,9 @@
 
     var width = Math.min(FIELD_WIDTH, boxWidth);
     var height = Math.max(40, Math.round(width * aspect));
-    var lights = OKScheme.activeLights(state.scheme);
+    // Every light, switched off ones included: the slice below is indexed the
+    // same way and skips them itself.
+    var lights = state.scheme.lights;
     var frame = state.frame;
     var sp = space();
     var weights = new Array(lights.length);
@@ -708,9 +708,10 @@
   }
 
   function canBuild() {
+    // A scheme whose lights are all switched off still builds: the layers are
+    // made and hidden, which is how the document holds on to them.
     return !!(state.document && state.document.hasDocument &&
-      state.document.modeId === 'RGBColor' &&
-      OKScheme.activeLights(state.scheme).length);
+      state.document.modeId === 'RGBColor' && state.scheme.lights.length);
   }
 
   // ------------------------------------------------------------- Photoshop
@@ -728,7 +729,7 @@
       state.frame = { width: info.width, height: info.height };
       var match = info.modeId === 'RGBColor' ? OKColor.matchProfile(info.profile) : null;
       state.spaceId = match ? match.spaceId : 'srgb';
-      state.key = documentKey(info);
+      state.key = info.id + '|' + (info.path || info.name);
       if (info.modeId !== 'RGBColor') {
         status('This is a ' + (info.mode || 'non-RGB') +
           ' document. Convert it to RGB and the panel can colour it.');
@@ -738,44 +739,36 @@
       status('Open the drawing you want to colour.');
     }
     compiled = null;
-    if (state.key && state.key !== before) await loadForDocument();
-    requestRender();
-  }
 
-  /**
-   * A name for this document's saved scheme.  The file path if it has been
-   * saved, because that survives being closed and re-opened; the title
-   * otherwise, which at least survives switching between two open documents.
-   */
-  function documentKey(info) {
-    var seed = info.path || info.name || '';
-    if (!seed) return '';
-    var hash = 2166136261;
-    for (var i = 0; i < seed.length; i++) {
-      hash ^= seed.charCodeAt(i);
-      hash = (hash * 16777619) >>> 0;
+    // Only when the document under the panel really changed.  Re-reading on
+    // every notification would throw away edits that have not been built yet,
+    // and there is nowhere else they are kept.
+    if (state.key && state.key !== before) {
+      // Layer ids belong to the document that issued them, so the anchor from
+      // the last one cannot be trusted to mean anything here.
+      state.scheme.groupId = 0;
+      var built = readDocument();
+      if (built) useScheme(built, 'Read the lighting scheme out of this document\'s layers.');
     }
-    var stem = (info.name || 'document').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40);
-    return 'scheme-' + stem + '-' + hash.toString(16) + '.json';
+    requestRender();
   }
 
   /**
    * The scheme written into this document's own layer names, if there is one.
    *
-   * The names are the only copy that travels inside the PSD, so this is how a
-   * document that arrives from somewhere else - or from a machine whose data
-   * folder is not this one - gives its lighting up.  Photoshop lists layers top
-   * first and the panel lists lights bottom first, hence the reversal.
+   * This is the only place a scheme is kept: it is inside the file it belongs
+   * to, so it survives the document being moved, copied or handed to somebody
+   * else, and there is never a second copy to disagree with it.  Photoshop
+   * lists layers top first and the panel lists lights bottom first, hence the
+   * reversal.
    */
   function readDocument() {
     if (!PS.available()) return null;
     var node = OKApply.findAny(
       state.scheme.groupId, state.scheme.groupName || state.scheme.name);
     if (!node) return null;
-    var names = node.group
-      ? node.layers.map(function (child) { return child.name; }).reverse()
-      : [node.name];
-    var scheme = OKScheme.fromLayerNames(node.name, names);
+    var layers = node.group ? node.layers.slice().reverse() : [node];
+    var scheme = OKScheme.fromLayers(node.name, layers);
     if (!scheme) return null;
     scheme.groupId = node.id;
     scheme.groupName = OKScheme.displayName(node.name);
@@ -788,52 +781,6 @@
     compiled = null;
     status(message);
     requestRender();
-  }
-
-  var saveTimer = null;
-
-  function scheduleSave() {
-    if (!state.key || !PS.available()) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(function () {
-      saveTimer = null;
-      PS.writeData(state.key, OKScheme.stringify(state.scheme));
-    }, 600);
-  }
-
-  /**
-   * Pick up whatever this document already has to say about its lighting.
-   *
-   * There can be two copies and they can disagree.  The one in the plugin's
-   * data folder is the newer of the two whenever the panel has been edited
-   * without building, so it wins - but only while the layers it describes are
-   * still there.  If they are not, either this document came from somewhere
-   * else or somebody has been rearranging, and the document itself is the
-   * better witness.
-   */
-  async function loadForDocument() {
-    var saved = null;
-    var text = await PS.readData(state.key);
-    if (text) {
-      try { saved = OKScheme.parse(text); } catch (e) { saved = null; }
-    }
-    var built = readDocument();
-    // A saved scheme that points at a group which is no longer here is the one
-    // case where it cannot be trusted over the document: the file has been
-    // somewhere else, or somebody has been rearranging.  A saved scheme that
-    // was never built points at nothing yet and is simply work in progress.
-    var stale = saved && saved.groupId &&
-      !OKApply.findPrevious(saved.groupId, saved.groupName);
-
-    if (saved && !stale) {
-      useScheme(saved, 'Picked up the scheme saved for this document.');
-    } else if (built) {
-      useScheme(built, 'Read the lighting scheme out of this document\'s layers.');
-    } else if (saved) {
-      useScheme(saved, 'Picked up the scheme saved for this document.');
-    } else if (text) {
-      status('The scheme saved for this document could not be read.');
-    }
   }
 
   async function run() {
@@ -850,7 +797,6 @@
       state.scheme.groupId = result.groupId;
       // What it ended up called, which for a lone layer is the light's name.
       state.scheme.groupName = result.name;
-      scheduleSave();
       var count = plan.layers.length;
       status((result.replaced ? 'Rebuilt ' : 'Built ') + count +
         (count === 1 ? ' layer' : ' layers') + ' in "' + plan.name + '"' +
@@ -881,7 +827,6 @@
       useScheme(scheme, 'Read ' + scheme.lights.length +
         (scheme.lights.length === 1 ? ' light' : ' lights') + ' out of "' +
         (scheme.groupName || scheme.name) + '".');
-      scheduleSave();
     } else {
       status(PS.available()
         ? 'Nothing in this document\'s layers to read: build a scheme first, or one of them has been renamed.'

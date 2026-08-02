@@ -156,16 +156,44 @@ test('the ends of the ramp stay black and white', () => {
   });
 });
 
-test('a switched-off light is not in the plan', () => {
+test('a switched-off light is still built, switched off', () => {
+  // The document is the only place a scheme is kept, so a light that is not in
+  // it is a light that is gone.  It goes in hidden instead.
   let scheme = S.create('neon');
   const plan = G.plan(scheme, ctx, FRAME);
   assert.strictEqual(plan.layers.length, scheme.lights.length);
   assert.strictEqual(plan.name, scheme.name);
+  assert.ok(plan.layers.every((layer) => layer.visible));
 
   scheme = S.updateLight(scheme, scheme.lights[1].id, { enabled: false });
-  const smaller = G.plan(scheme, ctx, FRAME);
-  assert.strictEqual(smaller.layers.length, scheme.lights.length - 1);
-  assert.ok(!smaller.layers.some((layer) => layer.id === scheme.lights[1].id));
+  const off = G.plan(scheme, ctx, FRAME);
+  assert.strictEqual(off.layers.length, scheme.lights.length, 'still one layer each');
+  assert.deepStrictEqual(off.layers.map((l) => l.visible), [true, false, true]);
+  assert.ok(off.layers[1].stops.length, 'and it is a real gradient, ready to switch on');
+});
+
+test('a switched-off light changes nothing about the others', () => {
+  const scheme = S.create('neon');
+  const off = S.updateLight(scheme, scheme.lights[1].id, { enabled: false });
+  const gray = G.grayAt(srgb, 0.4);
+
+  // What the stack does with the middle light hidden is what it does without it.
+  const without = S.normalise(Object.assign({}, scheme, {
+    lights: [scheme.lights[0], scheme.lights[2]]
+  }));
+  const hidden = G.composite(G.compile(off, ctx), gray);
+  const absent = G.composite(G.compile(without, ctx), gray);
+  hidden.forEach((channel, i) => close(channel, absent[i], 1e-12, 'channel ' + i));
+});
+
+test('a light solved while switched off is solved as though it were on', () => {
+  // So that switching it on in Photoshop gives what the panel designed, rather
+  // than a layer that was compiled against a stack it is not standing on.
+  const scheme = S.create('candle');
+  const off = S.updateLight(scheme, scheme.lights[1].id, { enabled: false });
+  const one = G.compile(scheme, ctx)[1];
+  const other = G.compile(off, ctx)[1];
+  assert.deepStrictEqual(other.stops, one.stops);
 });
 
 test('a plan carries a blend mode and a mask for each light', () => {

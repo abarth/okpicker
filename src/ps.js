@@ -131,7 +131,10 @@
       var out = [];
       for (var i = 0; i < layers.length; i++) {
         var layer = layers[i];
-        var node = { id: layer.id, name: layer.name, group: false, layers: [] };
+        var node = {
+          id: layer.id, name: layer.name, visible: layer.visible !== false,
+          group: false, layers: []
+        };
         try {
           if (layer.layers && layer.layers.length !== undefined) {
             node.group = true;
@@ -279,44 +282,13 @@
   }
 
   // ------------------------------------------------------------------ files
-  // The plugin's own data folder is where a lighting scheme lives between
-  // sessions, keyed to the document it was written for.  It is not inside the
-  // PSD - a UXP plugin has no way to put it there - so there are also plain
-  // Save and Load, and a scheme file is small enough to keep next to the
-  // artwork or hand to somebody else.
+  // Nothing is kept here between sessions.  A lighting scheme lives in the
+  // document, written into the names of the layers it made, so that there is
+  // one copy of it and it is inside the file it belongs to.  These two are for
+  // moving a scheme between documents by hand.
 
   function fileSystem() {
     try { return uxp.storage.localFileSystem; } catch (e) { return null; }
-  }
-
-  async function dataFolder() {
-    var fs = fileSystem();
-    if (!fs) return null;
-    try { return await fs.getDataFolder(); } catch (e) { return null; }
-  }
-
-  /** Contents of a file in the plugin's data folder, or null if it is not there. */
-  async function readData(name) {
-    var folder = await dataFolder();
-    if (!folder) return null;
-    try {
-      var entry = await folder.getEntry(name);
-      return entry ? await entry.read() : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  async function writeData(name, text) {
-    var folder = await dataFolder();
-    if (!folder) return false;
-    try {
-      var file = await folder.createFile(name, { overwrite: true });
-      await file.write(text);
-      return true;
-    } catch (e) {
-      return false;
-    }
   }
 
   /** Ask for somewhere to save, then write there.  Null if the user backed out. */
@@ -365,8 +337,6 @@
     getColor: getColor,
     onDocumentChange: onDocumentChange,
     onSwatchChange: onSwatchChange,
-    readData: readData,
-    writeData: writeData,
     saveAs: saveAs,
     openFile: openFile,
     registerPanel: registerPanel

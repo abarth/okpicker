@@ -203,7 +203,7 @@ them, and **chroma** scales the lot.
 | --- | --- |
 | The strip at the top | The whole value range, put through the scheme. It is drawn at the point marked in the frame below, and dragging along it moves the value the frame is drawn at. |
 | The frame | Where the light falls, on a stand-in drawing running light at the top to dark at the bottom. Drag a light's handle to move it — a ring shows how far a disc reaches, a dot on the edge shows which way a wash comes from. Click anywhere else to move the probe the strip is read at. |
-| The list | Every light in the scheme, bottom layer first. Click to select, click the *on* / *off* at the right to switch one out without deleting it. |
+| The list | Every light in the scheme, bottom layer first. Click to select, click the *on* / *off* at the right to switch one out without deleting it — it is still built, as a hidden layer. |
 | **Build** | Makes the layers. |
 | **From layers** | Reads the scheme back out of the layers already in the document. |
 
@@ -222,11 +222,8 @@ the level above the gradients.
 ### The scheme is the document
 
 What you edit is a small object — a name, two scheme-wide knobs, and a list of
-lights — and it is kept in three places, because each one survives something the
-others do not.
-
-**In the layer names.** Every layer the panel builds is called what the light is
-called, followed by the light itself:
+lights — and there is exactly one copy of it: the layers themselves. Every layer
+the panel builds is called what the light is called, followed by the light:
 
 ```
 Street lamp [oklch1 k=lamp h=196 c=0.1 t=all r=0.5 g=rad x=0.24 y=0.6 z=0.36 f=0.85]
@@ -241,11 +238,18 @@ Neon night [oklch1 pl=neon bl=hard ch=1.15 hu=25]
 A UXP plugin has no way to write anything of its own inside a PSD, and layer
 names are the one field that both travels with the file and can be read back —
 so this is the copy that survives being handed to somebody else, or being opened
-on a machine that has never seen the document before. **From layers** reads it,
-and so does opening a document the panel has nothing else saved for. Each layer
-carries its own light rather than the group carrying all of them, which is what
-makes it scale: the whole scheme on one name would run out of room at about four
-lights.
+on a machine that has never seen the document before. Opening a document reads
+it, and **From layers** reads it again on demand. Each layer carries its own
+light rather than the group carrying all of them, which is what makes it scale:
+the whole scheme on one name would run out of room at about four lights.
+
+A light **switched off** is built anyway and its layer hidden, because a hidden
+adjustment layer does nothing — it is off in every sense the document has, and
+it is still there to be switched back on. That is also how it works the other
+way: hide one of the layers in Photoshop, press **From layers**, and the panel
+has it switched off. It is still solved against the lights below it as though it
+were on, so switching it on gives what the panel designed rather than something
+stale.
 
 The fields are named rather than positional so the result is something you can
 read — and change — in the Layers panel: set `h=196` to `h=210` by hand, press
@@ -270,15 +274,16 @@ Everything in a scheme is held to a step finer than the panel can show — a
 degree of hue, a thousandth of chroma, a thousandth of the frame — so this round
 trip is exact rather than nearly exact.
 
-**In the plugin's data folder**, keyed to the document's path, saved as you
-work. This is the copy that is ahead of the others: it has the edits you have
-made but not built yet, and the lights you have switched off, which produce no
-layer to be written into. It wins on re-opening a document unless it points at a
-group that is no longer there — which is how a file that arrived from somewhere
-else falls through to reading its own layers.
+Nothing is kept anywhere else. There is no copy in the plugin's own storage that
+could be ahead of the document or behind it, and nothing to reconcile: what the
+layers say is what the scheme is. The cost is that **an edit you have not built
+is not saved anywhere** — change your mind about a light, switch documents
+without pressing **Build**, and the change is gone. Building is one press and
+one undo, so the habit is cheap.
 
-**In a file of your own**, via **Save…** and **Load…**: the same thing as JSON,
-to keep next to the artwork or to reuse on another painting.
+**Save…** and **Load…** are the same scheme as a JSON file, for moving one
+between paintings or keeping a set of your own. They are export and import
+rather than storage: loading one does not touch the document until you build it.
 
 ### How the lightness survives
 
@@ -347,9 +352,6 @@ masked away, so it is the only safe thing for the rest to stand on. **Down** and
 - **An active selection is dropped** before the masks are drawn — the gradient
   tool would otherwise clip every one of them to it. That happens inside the
   same history step, so undo puts the selection back.
-- **A light switched off makes no layer**, so it is not in the copy the document
-  carries. Reading a scheme back out of the layers gives you the lights that are
-  there; the panel's own saved copy is the one that remembers the rest.
 - The layers are ordinary gradient maps and ordinary masks. Nothing about them
   depends on the panel: open one in the gradient editor and edit it by hand if
   you like. Building again will overwrite it, so keep hand edits above the
@@ -380,7 +382,7 @@ between them; in Photoshop that bar is never built.
 | `src/render.js` | Pixel generators: the gamut diagram, the axis ramps, colour strips and sampled fields. |
 | `src/png.js` | RGBA → PNG → data URI, for hosts without a working canvas. |
 | `src/dom.js` | Shared browser plumbing: the pixel surface, the drag binding, and mounting a subtree into the root node a panel entry point is given. |
-| `src/ps.js` | Host bridge: document, swatches, notifications, modal execution, the layer tree, the plugin's data folder. |
+| `src/ps.js` | Host bridge: document, swatches, notifications, modal execution, the layer tree, file dialogs. |
 | `src/ui.js` | The picker: state, the foreground binding, repaint scheduling, layout. |
 | `src/blend.js` | Blend modes forwards and backwards, and the stop solver that holds lightness. No DOM. |
 | `src/scheme.js` | The lighting scheme: kinds, tonal profiles, mask shapes, palettes, and both of its written forms — JSON, and the tokens in the layer names. No DOM, no Photoshop. |

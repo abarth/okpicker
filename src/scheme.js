@@ -7,8 +7,9 @@
  * colour, a place, and a stretch of the value range it belongs to - and the
  * compiler in gradient.js is what turns that into things Photoshop can hold.
  * Keeping the two apart is the point of the panel: the scheme is small enough
- * to save, to re-open a week later and to change your mind about, while the
- * layer stack it produces is disposable and can be rebuilt from it at any time.
+ * to write into the names of the layers it made, to read back out of them a
+ * week later and to change your mind about, while the layer stack itself is
+ * disposable and can be rebuilt from it at any time.
  *
  * A light says three things:
  *
@@ -606,15 +607,24 @@
   /**
    * A whole scheme, read back out of the document.
    *
-   * `layerNames` is bottom of the stack first, the order the panel lists them
-   * in.  A layer somebody renamed past recognition is skipped rather than
-   * guessed at; if none of them are readable there was no scheme here.
+   * `layers` is `{name, visible}` for each one, bottom of the stack first - the
+   * order the panel lists them in.  A layer somebody renamed past recognition
+   * is skipped rather than guessed at; if none of them are readable there was
+   * no scheme here.
+   *
+   * Whether a light is switched on is not in the token, because the layer
+   * already says: a hidden adjustment layer does nothing, which is exactly what
+   * a light switched off means.  Hiding one in the Layers panel and reading the
+   * scheme back switches it off in the panel too.
    */
-  function fromLayerNames(groupName, layerNames) {
+  function fromLayers(groupName, layers) {
     var lights = [];
-    (layerNames || []).forEach(function (name) {
-      var light = lightFromName(name, lights.length);
-      if (light) lights.push(light);
+    (layers || []).forEach(function (layer) {
+      var entry = typeof layer === 'string' ? { name: layer } : (layer || {});
+      var light = lightFromName(entry.name, lights.length);
+      if (!light) return;
+      light.enabled = entry.visible !== false;
+      lights.push(light);
     });
     if (!lights.length) return null;
 
@@ -739,7 +749,7 @@
     hasToken: hasToken,
     readName: readName,
     lightFromName: lightFromName,
-    fromLayerNames: fromLayerNames,
+    fromLayers: fromLayers,
 
     addLight: addLight,
     removeLight: removeLight,

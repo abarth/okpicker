@@ -218,6 +218,23 @@
     });
   }
 
+  /**
+   * A light switched off is built and hidden rather than left out: a hidden
+   * adjustment layer does nothing at all, so it is off in every sense the
+   * document has, and it is still there to be read back and switched on again.
+   */
+  async function hideLayer() {
+    try {
+      await play({ _obj: 'hide', 'null': [TARGET_LAYER] });
+    } catch (e) {
+      await play({
+        _obj: 'set',
+        _target: [TARGET_LAYER],
+        to: { _obj: 'layer', visible: false }
+      });
+    }
+  }
+
   async function drawMask(layer) {
     var mask = layer.mask;
     await play({
@@ -318,7 +335,7 @@
   async function generate(plan, options) {
     options = options || {};
     if (!PS.available()) throw new Error('Photoshop is not available');
-    if (!plan.layers.length) throw new Error('the scheme has no lights switched on');
+    if (!plan.layers.length) throw new Error('the scheme has no lights in it');
 
     var previous = findPrevious(options.groupId, options.groupName || plan.name);
     var previousId = previous ? previous.id : 0;
@@ -339,6 +356,7 @@
         var id = await makeGradientMapLayer(layer);
         await nameAndBlend(layer);
         if (layer.mask) await drawMask(layer);
+        if (layer.visible === false) await hideLayer();
         result.layerIds.push(id);
       }
 
