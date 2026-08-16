@@ -145,3 +145,133 @@ body {
   background-color: #ffffff;
   pointer-events: none;
 }
+
+/* ------------------------------------------------------------------ panels */
+
+/* Photoshop shows the <uxp-panel> whose id matches the panel being opened, and
+   nothing else.  A browser has never heard of the element, so it needs both a
+   display mode and, under `.dev` below, somewhere to put the second one. */
+.panel {
+  display: block;
+  position: relative;
+  height: 100%;
+}
+
+/* Set on <html> when the Photoshop bridge is missing, which is to say when
+   index.html has been opened in a browser to work on the UI.  Both panels are
+   real then, so they share the window rather than sitting on top of each
+   other. */
+html.dev body {
+  display: flex;
+  flex-direction: row;
+}
+
+html.dev .panel {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+html.dev .panel + .panel {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(127, 127, 127, 0.25);
+}
+
+#groot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ------------------------------------------------------------- the ramp */
+
+/* The ramp and its handles are one target: a press anywhere in the row grabs
+   the nearest control point, or drops a new one where there is not one
+   already. */
+.ramprow {
+  flex: 0 0 auto;
+  position: relative;
+  cursor: pointer;
+}
+
+.ramp {
+  position: relative;
+  height: 22px;
+  border-radius: 3px;
+  background-color: rgba(127, 127, 127, 0.12);
+}
+
+.handles {
+  position: relative;
+  height: 11px;
+  margin-top: 2px;
+}
+
+.handle {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 9px;
+  margin-left: -5px;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: 2px;
+  background-color: #8f8f8f;
+  pointer-events: none;
+}
+
+.handle.on {
+  width: 11px;
+  height: 11px;
+  margin-left: -6px;
+  background-color: #ffffff;
+}
+
+/* Dragged clear of the row: let go here and the control point goes away. */
+.handle.doomed {
+  opacity: 0.25;
+}
+
+/* ------------------------------------------------------------- the footer */
+
+.foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-top: 6px;
+  height: 22px;
+}
+
+.preset {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #d6d6d6;
+  background-color: rgba(127, 127, 127, 0.14);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 3px;
+}
+
+.action {
+  flex: 0 1 auto;
+  max-width: 50%;
+  margin-left: 6px;
+  padding: 0 8px;
+  height: 22px;
+  line-height: 20px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #8f8f8f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action.enabled {
+  color: #d6d6d6;
+  background-color: rgba(127, 127, 127, 0.14);
+  border-color: rgba(127, 127, 127, 0.4);
+  cursor: pointer;
+}
