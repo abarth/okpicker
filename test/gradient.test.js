@@ -116,26 +116,51 @@ test('the neutral design reproduces the grey ramp exactly under classic interpol
   });
 });
 
-test('every preset preserves lightness whichever way Photoshop interpolates', () => {
+test('every preset reproduces its design whichever way Photoshop interpolates', () => {
   SPACES.forEach((id) => {
     const space = C.getSpace(id);
     G.PRESETS.forEach((preset) => {
-      const built = G.buildStops(G.presetDesign(preset.id), space);
+      const design = G.presetDesign(preset.id);
+      const built = G.buildStops(design, space);
+      const where = preset.id + ' in ' + id;
       assert.ok(
         built.stops.length <= G.DEFAULTS.maxStops,
-        preset.id + ' in ' + id + ' needed ' + built.stops.length + ' stops'
+        where + ' needed ' + built.stops.length + ' stops'
       );
-      assert.ok(
-        built.error.deltaE <= G.DEFAULTS.budget,
-        preset.id + ' in ' + id + ' is out by dE ' + built.error.deltaE
-      );
+
       // Lightness is the half that matters: a chroma error is a slightly
       // different colour, a lightness error is the painting's values moving.
       // An 8-bit step is about 0.0035 of OKLab L, so this is under half of one.
       assert.ok(
         built.error.deltaL <= 0.002,
-        preset.id + ' in ' + id + ' moved lightness by ' + built.error.deltaL
+        where + ' moved lightness by ' + built.error.deltaL
       );
+
+      // Colour agreement is looser, and has a floor that stops cannot lower.
+      // Below the darkest 8-bit level the linear values are the same order as
+      // the epsilon maxChroma tests the gamut with, so the chroma it hands back
+      // there is a shade optimistic and the clamp takes some of it away again.
+      // It happens at L = 0.01, in a colour that quantises to RGB (1, 0, 0),
+      // and no number of stops moves it - so it is bounded, not chased.
+      assert.ok(
+        built.error.deltaE <= 0.005,
+        where + ' is out by dE ' + built.error.deltaE
+      );
+
+      // Everywhere a document can actually address, the agreement is a fraction
+      // of a just-noticeable difference, which is about 0.02 in OKLab.
+      const refs = G.reference(design, space, 513).filter((r) => r.p >= 1 / 255);
+      G.METHODS.forEach((method) => {
+        const read = G.sampler(built.stops, space, method);
+        refs.forEach((r) => {
+          const off = G.deltaE(G.labOf(space, read(r.p)), r.lab);
+          assert.ok(
+            off <= 0.004,
+            where + ' is out by dE ' + off + ' at grey ' + Math.round(r.p * 255) +
+              ' under ' + method
+          );
+        });
+      });
     });
   });
 });

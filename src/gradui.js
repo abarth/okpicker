@@ -408,49 +408,28 @@
 
   var focused = false;
 
-  /** The value carried by the menu's headings.  Anything that is not a preset
-   *  id will do, and a printable one will not surprise the host. */
-  var SEPARATOR = '-';
-
-  /** A preset row that is a heading rather than a choice. */
-  function separator(label) {
-    var option = doc.createElement('option');
-    option.value = SEPARATOR;
-    option.textContent = '-- ' + label + ' --';
-    // Honoured where it is supported, and harmless where it is not: picking one
-    // of these bounces the menu back to what it was showing.
-    option.disabled = true;
-    return option;
-  }
-
-  /**
-   * The preset menu, as a flat list.  <optgroup> would be the obvious way to
-   * separate the everyday lighting from the strange, but UXP does not render
-   * it - and worse, it drops the options nested inside it, so the menu comes up
-   * holding nothing but "Custom".
-   */
   function buildPresetList() {
     var custom = doc.createElement('option');
     custom.value = '';
     custom.textContent = 'Custom';
     els.preset.appendChild(custom);
 
-    [['common', 'Everyday light'], ['unusual', 'Unusual light']].forEach(function (group) {
-      els.preset.appendChild(separator(group[1]));
-      OKGradient.PRESETS.forEach(function (preset) {
-        if (preset.group !== group[0]) return;
-        var option = doc.createElement('option');
-        option.value = preset.id;
-        option.textContent = preset.label;
-        els.preset.appendChild(option);
-      });
+    // Flat, in the order the presets are declared: everyday lighting first,
+    // then the stranger sort.  <optgroup> would say so, but UXP does not render
+    // it and drops the options nested inside; plain heading rows were not worth
+    // the space when they cannot be chosen anyway.
+    OKGradient.PRESETS.forEach(function (preset) {
+      var option = doc.createElement('option');
+      option.value = preset.id;
+      option.textContent = preset.label;
+      els.preset.appendChild(option);
     });
 
     els.preset.addEventListener('change', function () {
       var design = OKGradient.presetDesign(els.preset.value);
       if (!design) {
-        // "Custom" and the headings are not designs; put the menu back to
-        // whatever the current one is.
+        // "Custom" is a report, not a choice; put the menu back to the design
+        // that is actually loaded.
         syncPreset();
         return;
       }

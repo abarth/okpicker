@@ -114,7 +114,7 @@ for it.
 | Top track | Chroma, as a fraction of what the document can hold at this lightness and hue — so the whole track is in gamut, end to end. |
 | Middle track | Hue, right round the circle at that same relative chroma. |
 | Bottom track | The master amount: every control point's chroma at once. |
-| Preset | Twenty-five lighting conditions to start from, from daylight and tungsten to sodium vapour and bioluminescence. |
+| Preset | Twenty-five lighting conditions to start from, everyday ones first and then the stranger sort — daylight and tungsten through to sodium vapour and bioluminescence. Chroma is relative, so the everyday conditions sit between a third and three quarters of the way out to the gamut wall and the strange ones go most of the way. |
 | Button | Adds a gradient map layer when there is not one selected; otherwise it names the layer the panel is bound to. |
 
 Everything writes straight through to the layer while you drag, so the picture
@@ -234,9 +234,25 @@ is the whole design; the stops are generated. Photoshop has three interpolation
 rules — Perceptual (OKLab, the default since 2023), Linear and Classic — and
 rather than bet on one, the panel seeds 33 stops uniform in lightness, plus one
 on each control point, and then bisects the worst interval until *all three*
-rules reproduce the design to within half an 8-bit step. That takes 35 to 62
-stops depending on the design and the space, and it makes the result the same
-whichever rule the host applies.
+rules agree with the design. That takes 38 to 64 stops depending on the design
+and the space, and it makes the result the same whichever rule the host applies.
+
+What that buys, measured over every preset in every working space the plugin
+knows:
+
+| | Worst case | For scale |
+| --- | --- | --- |
+| Lightness | 0.0018 of OKLab L | an 8-bit step is 0.0035 |
+| Colour, anywhere a document can address | 0.0033 dE | a just-noticeable difference is about 0.02 |
+| Colour, including below the darkest 8-bit level | 0.0043 dE | |
+
+Lightness is the half that matters, and it is the half held tightest: a chroma
+error is a slightly different colour, a lightness error is the painting's values
+moving. The last row is a floor rather than an approximation — down where the
+linear values are the same order as the epsilon the gamut search tests against,
+the chroma it hands back is a shade optimistic and the clamp takes some of it
+away again. It happens at L = 0.01, in a colour that quantises to RGB (1, 0, 0),
+and no number of stops moves it.
 
 One property is worth calling out: at zero chroma a stop's encoded value is
 exactly its own position, so the neutral part of every ramp lies exactly on the

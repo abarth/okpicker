@@ -411,6 +411,12 @@
         if (stops[s + 1].location - stops[s].location <= 1) continue;
         if (error.perSegment[s] > worst) { worst = error.perSegment[s]; seg = s; }
       }
+      // Nothing splittable left, or nothing left worth splitting.  Some
+      // designs also keep a small residue that stops cannot reach at all: down
+      // where the linear values are the same order as the epsilon maxChroma
+      // tests the gamut with, the chroma it returns is a shade optimistic and
+      // the clamp in encodedAt takes some of it back.  That lands at L = 0.01,
+      // below the darkest level an 8-bit document can hold.
       if (seg < 0) break;
       stops.splice(seg + 1, 0,
         stopAt(curve, space, (stops[seg].location + stops[seg + 1].location) / 2));
@@ -464,69 +470,73 @@
   // Lighting conditions rather than colour schemes: what a grayscale painting
   // should look like once the light in the scene is put back into it.  Each is
   // three control points - shadow, midtone, highlight - and the endpoints look
-  // after themselves.
+  // after themselves.  Everyday light comes first, then the stranger sort.
+  //
+  // Chroma is relative, so 1.0 is the gamut wall: the everyday conditions sit
+  // between a third and three quarters of the way out, and the strange ones go
+  // most of the way.
 
   function P(L, rho, H) { return { L: L, rho: rho, H: H }; }
 
-  function preset(id, label, group, path, amount, points) {
-    return { id: id, label: label, group: group,
+  function preset(id, label, path, amount, points) {
+    return { id: id, label: label,
              design: { points: points, amount: amount, path: path } };
   }
 
   var PRESETS = [
-    // ------------------------------------------------------------- everyday
-    preset('neutral', 'Neutral', 'common', 'direct', 1,
+    // ---------------------------------------------------------- everyday light
+    preset('neutral', 'Neutral', 'direct', 1,
       [P(0.25, 0, 260), P(0.55, 0, 60), P(0.84, 0, 90)]),
-    preset('daylight', 'Daylight', 'common', 'direct', 1,
-      [P(0.25, 0.34, 262), P(0.55, 0.26, 58), P(0.84, 0.24, 92)]),
-    preset('goldenhour', 'Golden hour', 'common', 'direct', 1,
-      [P(0.24, 0.42, 295), P(0.54, 0.55, 45), P(0.83, 0.46, 76)]),
-    preset('overcast', 'Overcast', 'common', 'direct', 1,
-      [P(0.26, 0.22, 255), P(0.55, 0.12, 240), P(0.84, 0.10, 230)]),
-    preset('openshade', 'Open shade', 'common', 'direct', 1,
-      [P(0.25, 0.36, 252), P(0.55, 0.24, 246), P(0.84, 0.16, 238)]),
-    preset('tungsten', 'Tungsten', 'common', 'direct', 1,
-      [P(0.25, 0.26, 268), P(0.55, 0.36, 52), P(0.84, 0.32, 72)]),
-    preset('candle', 'Candlelight', 'common', 'direct', 1,
-      [P(0.24, 0.48, 22), P(0.53, 0.66, 48), P(0.83, 0.48, 84)]),
-    preset('moonlight', 'Moonlight', 'common', 'direct', 1,
-      [P(0.25, 0.32, 276), P(0.55, 0.26, 252), P(0.84, 0.14, 236)]),
-    preset('studio', 'Studio', 'common', 'direct', 1,
-      [P(0.25, 0.14, 258), P(0.55, 0.16, 34), P(0.84, 0.10, 62)]),
-    preset('dusk', 'Dusk', 'common', 'direct', 1,
-      [P(0.24, 0.34, 288), P(0.54, 0.34, 340), P(0.84, 0.30, 52)]),
-    preset('fluorescent', 'Fluorescent', 'common', 'direct', 1,
-      [P(0.25, 0.24, 320), P(0.55, 0.20, 150), P(0.84, 0.16, 140)]),
-    preset('sepia', 'Sepia', 'common', 'direct', 1,
-      [P(0.25, 0.26, 50), P(0.55, 0.30, 62), P(0.84, 0.22, 80)]),
-    preset('cyanotype', 'Cyanotype', 'common', 'direct', 1,
-      [P(0.24, 0.40, 258), P(0.55, 0.42, 244), P(0.84, 0.28, 230)]),
+    preset('daylight', 'Daylight', 'direct', 1,
+      [P(0.25, 0.62, 262), P(0.55, 0.50, 58), P(0.84, 0.44, 92)]),
+    preset('goldenhour', 'Golden hour', 'direct', 1,
+      [P(0.24, 0.60, 295), P(0.54, 0.85, 45), P(0.83, 0.72, 76)]),
+    preset('overcast', 'Overcast', 'direct', 1,
+      [P(0.26, 0.42, 255), P(0.55, 0.26, 240), P(0.84, 0.20, 230)]),
+    preset('openshade', 'Open shade', 'direct', 1,
+      [P(0.25, 0.62, 252), P(0.55, 0.46, 246), P(0.84, 0.32, 238)]),
+    preset('tungsten', 'Tungsten', 'direct', 1,
+      [P(0.25, 0.46, 268), P(0.55, 0.66, 52), P(0.84, 0.58, 72)]),
+    preset('candle', 'Candlelight', 'direct', 1,
+      [P(0.24, 0.70, 22), P(0.53, 0.92, 48), P(0.83, 0.72, 84)]),
+    preset('moonlight', 'Moonlight', 'direct', 1,
+      [P(0.25, 0.58, 276), P(0.55, 0.48, 252), P(0.84, 0.28, 236)]),
+    preset('studio', 'Studio', 'direct', 1,
+      [P(0.25, 0.28, 258), P(0.55, 0.32, 34), P(0.84, 0.22, 62)]),
+    preset('dusk', 'Dusk', 'direct', 1,
+      [P(0.24, 0.60, 288), P(0.54, 0.62, 340), P(0.84, 0.56, 52)]),
+    preset('fluorescent', 'Fluorescent', 'direct', 1,
+      [P(0.25, 0.48, 350), P(0.55, 0.44, 128), P(0.84, 0.34, 122)]),
+    preset('sepia', 'Sepia', 'direct', 1,
+      [P(0.25, 0.44, 50), P(0.55, 0.52, 62), P(0.84, 0.40, 80)]),
+    preset('cyanotype', 'Cyanotype', 'direct', 1,
+      [P(0.24, 0.66, 258), P(0.55, 0.70, 244), P(0.84, 0.50, 230)]),
 
-    // -------------------------------------------------------------- stranger
-    preset('sodium', 'Sodium vapour', 'unusual', 'direct', 1,
-      [P(0.24, 0.60, 48), P(0.55, 0.88, 58), P(0.84, 0.70, 66)]),
-    preset('neon', 'Neon', 'unusual', 'arc', 1,
-      [P(0.24, 0.70, 322), P(0.54, 0.55, 288), P(0.83, 0.62, 208)]),
-    preset('underwater', 'Underwater', 'unusual', 'arc', 1,
-      [P(0.25, 0.44, 240), P(0.55, 0.52, 196), P(0.84, 0.34, 172)]),
-    preset('bioluminescent', 'Bioluminescent', 'unusual', 'arc', 1,
-      [P(0.22, 0.42, 262), P(0.52, 0.72, 186), P(0.82, 0.52, 156)]),
-    preset('blacklight', 'Blacklight', 'unusual', 'arc', 1,
-      [P(0.22, 0.55, 300), P(0.52, 0.62, 322), P(0.82, 0.55, 250)]),
-    preset('forge', 'Forge', 'unusual', 'direct', 1,
-      [P(0.22, 0.30, 280), P(0.52, 0.80, 30), P(0.86, 0.55, 92)]),
-    preset('toxic', 'Toxic', 'unusual', 'direct', 1,
-      [P(0.24, 0.45, 300), P(0.54, 0.62, 132), P(0.84, 0.55, 116)]),
-    preset('aurora', 'Aurora', 'unusual', 'arc', 1,
-      [P(0.24, 0.42, 286), P(0.54, 0.60, 156), P(0.84, 0.40, 188)]),
-    preset('screenglow', 'Screen glow', 'unusual', 'direct', 1,
-      [P(0.24, 0.30, 40), P(0.54, 0.44, 232), P(0.84, 0.46, 206)]),
-    preset('infrared', 'Infrared', 'unusual', 'arc', 1,
-      [P(0.24, 0.40, 250), P(0.54, 0.55, 350), P(0.84, 0.40, 330)]),
-    preset('deepspace', 'Deep space', 'unusual', 'direct', 1,
-      [P(0.20, 0.35, 292), P(0.52, 0.30, 262), P(0.86, 0.16, 228)]),
-    preset('stage', 'Stage', 'unusual', 'arc', 1,
-      [P(0.24, 0.55, 262), P(0.54, 0.35, 310), P(0.84, 0.50, 58)])
+    // ----------------------------------------------------------- stranger light
+    preset('sodium', 'Sodium vapour', 'direct', 1,
+      [P(0.24, 0.78, 48), P(0.55, 1.00, 58), P(0.84, 0.88, 66)]),
+    preset('neon', 'Neon', 'arc', 1,
+      [P(0.24, 0.92, 322), P(0.54, 0.80, 288), P(0.83, 0.88, 208)]),
+    preset('underwater', 'Underwater', 'arc', 1,
+      [P(0.25, 0.68, 240), P(0.55, 0.80, 196), P(0.84, 0.55, 172)]),
+    preset('bioluminescent', 'Bioluminescent', 'arc', 1,
+      [P(0.22, 0.62, 262), P(0.52, 0.95, 186), P(0.82, 0.76, 156)]),
+    preset('blacklight', 'Blacklight', 'arc', 1,
+      [P(0.22, 0.85, 300), P(0.52, 0.92, 322), P(0.82, 0.82, 250)]),
+    preset('forge', 'Forge', 'direct', 1,
+      [P(0.22, 0.50, 280), P(0.52, 1.00, 30), P(0.86, 0.80, 92)]),
+    preset('toxic', 'Toxic', 'direct', 1,
+      [P(0.24, 0.70, 265), P(0.54, 0.92, 130), P(0.84, 0.82, 114)]),
+    preset('aurora', 'Aurora', 'arc', 1,
+      [P(0.24, 0.66, 286), P(0.54, 0.90, 156), P(0.84, 0.62, 188)]),
+    preset('screenglow', 'Screen glow', 'direct', 1,
+      [P(0.24, 0.52, 5), P(0.54, 0.70, 232), P(0.84, 0.70, 208)]),
+    preset('infrared', 'Infrared', 'arc', 1,
+      [P(0.24, 0.66, 250), P(0.54, 0.85, 350), P(0.84, 0.66, 330)]),
+    preset('deepspace', 'Deep space', 'direct', 1,
+      [P(0.20, 0.60, 292), P(0.52, 0.52, 262), P(0.86, 0.30, 228)]),
+    preset('stage', 'Stage', 'arc', 1,
+      [P(0.24, 0.82, 262), P(0.54, 0.58, 310), P(0.84, 0.78, 58)])
   ];
 
   var PRESET_BY_ID = {};
