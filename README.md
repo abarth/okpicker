@@ -5,7 +5,7 @@ lightness / chroma / hue model — and shows you exactly which colours fit insid
 the current document's colour space. It installs two panels:
 
 - **OKLCH**, a colour picker bound to the foreground swatch.
-- **Gradient Map**, for designing the gradient map that colours a grayscale
+- **OKLCH Gradient**, for designing the gradient map that colours a grayscale
   painting, live on the image.
 
 ![The picker](docs/panel.png)
@@ -58,7 +58,7 @@ the current document's colour space. It installs two panels:
 1. Install the [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)
    and start Photoshop.
 2. In UDT, **Add Plugin…** and select this repository's `manifest.json`.
-3. Press **Load**. The panel appears under **Plugins → OKLCH**.
+3. Press **Load**. Both panels appear under **Plugins → OKLCH**.
 
 `Load` again after editing a file, or use UDT's **Watch** to reload on save.
 
@@ -93,7 +93,7 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 Both the diagram and the tracks write straight through to the foreground
 swatch, live, while you drag.
 
-## The Gradient Map panel
+## The OKLCH Gradient panel
 
 A common way to paint is to work out the values in grayscale first and put the
 colour in afterwards with a gradient map. The problem with designing that
@@ -259,13 +259,13 @@ refined away is chromatic.
   document's space. If that call fails the panel retries with the document's
   RGB values.
 - **The document has to be in RGB mode** for the gradient map to produce colour.
-- The gradient map panel asks for whichever gradient interpolation rule
+- The OKLCH Gradient panel asks for whichever gradient interpolation rule
   Photoshop is already set to, rather than naming one. The descriptor key is
   undocumented and a wrong spelling would fail the whole write, and since the
   stops are refined against all three rules there is nothing to gain from
   picking one. `INTERPOLATION_METHOD` in `src/ps.js` turns it on once the
   spelling has been confirmed.
-- Dragging in the gradient panel writes on every frame, so a drag leaves several
+- Dragging in the OKLCH Gradient panel writes on every frame, so a drag leaves several
   history states rather than one. Collapsing them wants `suspendHistory` held
   open across the drag, which is worth doing but wants testing against a real
   Photoshop first.
@@ -302,7 +302,7 @@ side by side.
 | `src/surface.js` | DOM plumbing shared by the panels: the paint surface and pointer dragging. |
 | `src/ps.js` | Photoshop bridge: document profile, swatches, gradient map layers, notifications. |
 | `src/ui.js` | The picker: state, the foreground binding, repaint scheduling, layout and event wiring. |
-| `src/gradui.js` | The gradient map panel, the same way. |
+| `src/gradui.js` | The OKLCH Gradient panel, the same way. |
 | `test/` | Unit tests for everything above the DOM. |
 
 The renderer writes into an RGBA buffer and the panel decides where it goes: it

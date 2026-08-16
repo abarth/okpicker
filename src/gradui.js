@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Gradient Map panel: design a gradient map in OKLCH and edit it live in the
+ * OKLCH Gradient panel: design a gradient map in OKLCH and edit it live in the
  * document.
  *
  * The design is a handful of control points; gradient.js turns them into stops.
