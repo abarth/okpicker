@@ -356,6 +356,36 @@
     };
   }
 
+  /**
+   * Which of `marks` a press at (fx, fy) landed on, or -1 for none of them.
+   *
+   * The distance is measured in the element's own pixels rather than in chroma,
+   * so the target stays the same size on screen wherever in the gamut the mark
+   * happens to sit - and so that a space whose plot window is not square does
+   * not end up with oval targets.
+   *
+   * @param {Array} marks    [{C, H}] in the same coordinates as markerFraction
+   * @param {object} bounds  the window the plot was painted with
+   * @param {number} width   the element's width in pixels
+   * @param {number} height  ...and its height
+   * @param {number} radius  how far a press may land from a mark, in pixels
+   */
+  function markerHit(marks, fx, fy, bounds, width, height, radius) {
+    var best = -1;
+    var bestSq = radius * radius;
+    for (var i = 0; i < marks.length; i++) {
+      var f = markerFraction(marks[i].C, marks[i].H, bounds);
+      var dx = (fx - f.x) * width;
+      var dy = (fy - f.y) * height;
+      var distSq = dx * dx + dy * dy;
+      if (distSq <= bestSq) {
+        bestSq = distSq;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   function fractionToCh(fx, fy, bounds) {
     var a = bounds.aMin + fx * (bounds.aMax - bounds.aMin);
     var b = bounds.bMax - fy * (bounds.bMax - bounds.bMin);
@@ -375,6 +405,7 @@
     chromaRamp: chromaRamp,
     hueRamp: hueRamp,
     markerFraction: markerFraction,
+    markerHit: markerHit,
     fractionToCh: fractionToCh
   };
 });

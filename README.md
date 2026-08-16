@@ -110,7 +110,7 @@ for it.
 | --- | --- |
 | Ramp | The gradient you are building, drawn against lightness. Press near a handle to take hold of it, press anywhere else to drop a new control point there. Drag a handle clear of the row, or press Delete, to throw it away. |
 | Handles | One per control point. The filled one is selected; everything below acts on it. |
-| Diagram | The gamut at the selected point's lightness, with the whole ramp's route drawn across it and a dot on each of the other control points. Click or drag to set chroma and hue. |
+| Diagram | The gamut at the selected point's lightness, with the whole ramp's route drawn across it and a dot on each of the other control points. Click or drag to set chroma and hue; press a dot to take hold of that control point instead, which selects it without moving it and drags it if you carry on. |
 | Top track | Chroma, as a fraction of what the document can hold at this lightness and hue — so the whole track is in gamut, end to end. |
 | Middle track | Hue, right round the circle at that same relative chroma. |
 | Bottom track | The master amount: every control point's chroma at once. |

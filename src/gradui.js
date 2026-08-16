@@ -278,6 +278,8 @@
 
   /** How close a press has to land to grab an existing control point. */
   var GRAB_FRACTION = 0.035;
+  /** ...and how close, in panel pixels, to grab one off the diagram. */
+  var GRAB_PIXELS = 9;
   /** How far clear of the row a control point has to be dragged to be dropped. */
   var DROP_FRACTION = 1.4;
 
@@ -344,15 +346,38 @@
     });
   }
 
+  /** Did the gesture in progress on the diagram actually change anything? */
+  var plotEdited = false;
+
   function bindControls() {
-    bindDrag(els.plot, function (f) {
+    bindDrag(els.plot, function (f, start) {
+      if (start) {
+        plotEdited = false;
+        // A press that lands on a control point picks that point up instead of
+        // dragging the selected one onto it.  Nothing moves until the pointer
+        // does, so a click can select without also nudging the colour it just
+        // selected - but carrying straight on into a drag still works.
+        var hit = OKRender.markerHit(markSamples(), f.x, f.y, plotBounds(),
+          layoutSizes.plotW, layoutSizes.plotH, GRAB_PIXELS);
+        if (hit >= 0) {
+          if (hit !== selectedIndex()) {
+            state.selected = hit;
+            requestRender({ plot: true, ramps: true });
+          }
+          return;
+        }
+      }
+      plotEdited = true;
       var v = OKRender.fractionToCh(f.x, f.y, plotBounds());
       var point = selected();
       var ceiling = chromaCeiling(point.L, v.H);
       setEffectiveRho(point, ceiling > 0 ? v.C / ceiling : 0);
       point.H = v.H;
       designChanged({ plot: true, ramps: true });
-    }, function () { designChanged({ plot: true, ramps: true }, true); });
+    }, function () {
+      // Selecting is not an edit, so it does not need a write to the document.
+      if (plotEdited) designChanged({ plot: true, ramps: true }, true);
+    });
 
     bindDrag(els.cTrack, function (f) {
       setEffectiveRho(selected(), clamp01(f.x));
