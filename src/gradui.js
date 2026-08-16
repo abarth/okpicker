@@ -408,6 +408,27 @@
 
   var focused = false;
 
+  /** The value carried by the menu's headings.  Anything that is not a preset
+   *  id will do, and a printable one will not surprise the host. */
+  var SEPARATOR = '-';
+
+  /** A preset row that is a heading rather than a choice. */
+  function separator(label) {
+    var option = doc.createElement('option');
+    option.value = SEPARATOR;
+    option.textContent = '-- ' + label + ' --';
+    // Honoured where it is supported, and harmless where it is not: picking one
+    // of these bounces the menu back to what it was showing.
+    option.disabled = true;
+    return option;
+  }
+
+  /**
+   * The preset menu, as a flat list.  <optgroup> would be the obvious way to
+   * separate the everyday lighting from the strange, but UXP does not render
+   * it - and worse, it drops the options nested inside it, so the menu comes up
+   * holding nothing but "Custom".
+   */
   function buildPresetList() {
     var custom = doc.createElement('option');
     custom.value = '';
@@ -415,21 +436,24 @@
     els.preset.appendChild(custom);
 
     [['common', 'Everyday light'], ['unusual', 'Unusual light']].forEach(function (group) {
-      var box = doc.createElement('optgroup');
-      box.setAttribute('label', group[1]);
+      els.preset.appendChild(separator(group[1]));
       OKGradient.PRESETS.forEach(function (preset) {
         if (preset.group !== group[0]) return;
         var option = doc.createElement('option');
         option.value = preset.id;
         option.textContent = preset.label;
-        box.appendChild(option);
+        els.preset.appendChild(option);
       });
-      els.preset.appendChild(box);
     });
 
     els.preset.addEventListener('change', function () {
       var design = OKGradient.presetDesign(els.preset.value);
-      if (!design) return;
+      if (!design) {
+        // "Custom" and the headings are not designs; put the menu back to
+        // whatever the current one is.
+        syncPreset();
+        return;
+      }
       state.design = design;
       state.selected = Math.min(state.selected, design.points.length - 1);
       rebuildHandles();
