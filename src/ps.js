@@ -155,6 +155,133 @@
     }
   }
 
+  // ------------------------------------------------------------ gradient map
+
+  /**
+   * Which of Photoshop's gradient interpolation rules to ask for: 'Perc'
+   * (OKLab, the default since 2023), 'Lnr' (linear light) or 'Classic'.
+   *
+   * Left null on purpose.  The exact enum spellings are not documented, and a
+   * wrong one would fail the whole descriptor - while the stop list is refined
+   * until all three rules reproduce the design to within half an 8-bit step, so
+   * inheriting whatever the host is set to costs nothing.  Set this once the
+   * spelling has been confirmed against a real Photoshop.
+   */
+  var INTERPOLATION_METHOD = null;
+
+  /**
+   * A `gradientMapClass` descriptor built from a stop list.
+   * Stop colours are passed as fractional 0..255 doubles rather than rounded
+   * bytes, which is what a 16-bit document needs.
+   */
+  function gradientMapDescriptor(stops, name) {
+    var desc = {
+      _obj: 'gradientMapClass',
+      gradient: {
+        _obj: 'gradientClassEvent',
+        name: name || 'OKLCH',
+        gradientForm: { _enum: 'gradientForm', _value: 'customStops' },
+        // Photoshop's "smoothness", under a key name that is a decades-old
+        // accident rather than a typo.  Zero asks for straight interpolation
+        // between stops, which is the one the panel simulates.
+        interfaceIconFrameDimmed: 0,
+        colors: stops.map(function (s) {
+          return {
+            _obj: 'colorStop',
+            color: {
+              _obj: 'RGBColor',
+              red: channel255(s.encoded[0]),
+              // Photoshop really does call the green channel "grain".
+              grain: channel255(s.encoded[1]),
+              blue: channel255(s.encoded[2])
+            },
+            type: { _enum: 'colorStopType', _value: 'userStop' },
+            location: s.location,
+            midpoint: 50
+          };
+        }),
+        transparency: [
+          opacityStop(0),
+          opacityStop(4096)
+        ]
+      }
+    };
+    if (INTERPOLATION_METHOD) {
+      desc.gradientsInterpolationMethod = {
+        _enum: 'gradientInterpolationMethodType',
+        _value: INTERPOLATION_METHOD
+      };
+    }
+    return desc;
+  }
+
+  function channel255(v) {
+    var x = v * 255;
+    return x < 0 ? 0 : (x > 255 ? 255 : x);
+  }
+
+  function opacityStop(location) {
+    return {
+      _obj: 'transferSpec',
+      opacity: { _unit: 'percentUnit', _value: 100 },
+      location: location,
+      midpoint: 50
+    };
+  }
+
+  /**
+   * The selected layer, if it is a gradient map.
+   * The panel edits the layer the user has selected and nothing else, so there
+   * is never a hidden write to a layer they are not looking at.
+   */
+  async function getGradientMapLayer() {
+    if (!available()) return { hasLayer: false, reason: 'no-host' };
+    try {
+      var result = await batchPlay([{
+        _obj: 'get',
+        _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }]
+      }], { synchronousExecution: false });
+      var layer = result && result[0];
+      if (!layer) return { hasLayer: false };
+      var adjustment = layer.adjustment && layer.adjustment[0];
+      if (!adjustment || adjustment._obj !== 'gradientMapClass') {
+        return { hasLayer: false, layerName: layer.name || '' };
+      }
+      return {
+        hasLayer: true,
+        layerId: layer.layerID,
+        layerName: layer.name || '',
+        gradientName: (adjustment.gradient && adjustment.gradient.name) || ''
+      };
+    } catch (e) {
+      return { hasLayer: false, reason: String((e && e.message) || e) };
+    }
+  }
+
+  /** Add a gradient map adjustment layer above the selection. */
+  async function createGradientMap(descriptor) {
+    if (!available()) throw new Error('Photoshop API is not available');
+    await ps.core.executeAsModal(async function () {
+      await batchPlay([{
+        _obj: 'make',
+        _target: [{ _ref: 'adjustmentLayer' }],
+        using: { _obj: 'adjustmentLayer', type: descriptor }
+      }], {});
+    }, { commandName: 'Add OKLCH gradient map' });
+  }
+
+  /** Replace the selected gradient map's gradient. */
+  async function updateGradientMap(descriptor) {
+    if (!available()) throw new Error('Photoshop API is not available');
+    await ps.core.executeAsModal(async function () {
+      await batchPlay([{
+        _obj: 'set',
+        _target: [{ _ref: 'adjustmentLayer', _enum: 'ordinal', _value: 'targetEnum' }],
+        to: descriptor
+      }], {});
+    }, { commandName: 'Edit OKLCH gradient map' });
+  }
+
   // ---------------------------------------------------------- notifications
 
   var DOCUMENT_EVENTS = [
@@ -184,6 +311,16 @@
     return addListener(DOCUMENT_EVENTS, function () { callback(); });
   }
 
+  var LAYER_EVENTS = [
+    'select', 'make', 'delete', 'move', 'hide', 'show', 'set', 'undo', 'redo',
+    'historyStateChanged'
+  ];
+
+  /** Fires when the selected layer, or its content, may have changed. */
+  function onLayerChange(callback) {
+    return addListener(LAYER_EVENTS, function () { callback(); });
+  }
+
   /** Fires when the user changes the foreground/background swatch elsewhere. */
   function onSwatchChange(callback) {
     return addListener(['set'], function (event, descriptor) {
@@ -196,17 +333,31 @@
     });
   }
 
-  /** Register the panel entry point so Photoshop can drive its lifecycle. */
+  var pendingPanels = null;
+
+  /**
+   * Register a panel entry point so Photoshop can drive its lifecycle.
+   *
+   * `entrypoints.setup` takes every panel at once and may only be called once,
+   * so registrations are collected and handed over together on the next turn of
+   * the event loop - by which time each panel's controller has had its say.
+   */
   function registerPanel(id, handlers) {
     if (!uxp || !uxp.entrypoints || !uxp.entrypoints.setup) return false;
-    var panels = {};
-    panels[id] = handlers;
-    try {
-      uxp.entrypoints.setup({ panels: panels });
-      return true;
-    } catch (e) {
-      return false;
+    if (!pendingPanels) {
+      pendingPanels = {};
+      setTimeout(function () {
+        var panels = pendingPanels;
+        pendingPanels = null;
+        try {
+          uxp.entrypoints.setup({ panels: panels });
+        } catch (e) {
+          console.error('okpicker: could not register the panels', e);
+        }
+      }, 0);
     }
+    pendingPanels[id] = handlers;
+    return true;
   }
 
   return {
@@ -217,6 +368,12 @@
     getColor: getColor,
     onDocumentChange: onDocumentChange,
     onSwatchChange: onSwatchChange,
-    registerPanel: registerPanel
+    onLayerChange: onLayerChange,
+    registerPanel: registerPanel,
+
+    gradientMapDescriptor: gradientMapDescriptor,
+    getGradientMapLayer: getGradientMapLayer,
+    createGradientMap: createGradientMap,
+    updateGradientMap: updateGradientMap
   };
 });

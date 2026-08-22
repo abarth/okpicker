@@ -1,12 +1,16 @@
-# OKLCH — a colour picker for Photoshop
+# OKLCH — colour tools for Photoshop
 
-A UXP panel for Adobe Photoshop that picks colours in **OKLCH** — the perceptual
-lightness / chroma / hue model — and shows you exactly which of those colours
-fit inside the current document's colour space.
+A UXP plugin for Adobe Photoshop that works in **OKLCH** — the perceptual
+lightness / chroma / hue model — and shows you exactly which colours fit inside
+the current document's colour space. It installs two panels:
 
-![The panel](docs/panel.png)
+- **OKLCH**, a colour picker bound to the foreground swatch.
+- **OKLCH Gradient**, for designing the gradient map that colours a grayscale
+  painting, live on the image.
 
-## What it gives you
+![The picker](docs/panel.png)
+
+## What the picker gives you
 
 - **It *is* the foreground colour.** The panel is bound to Photoshop's
   foreground swatch in both directions: move anything in the picker and the
@@ -54,7 +58,7 @@ fit inside the current document's colour space.
 1. Install the [UXP Developer Tool](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/)
    and start Photoshop.
 2. In UDT, **Add Plugin…** and select this repository's `manifest.json`.
-3. Press **Load**. The panel appears under **Plugins → OKLCH**.
+3. Press **Load**. Both panels appear under **Plugins → OKLCH**.
 
 `Load` again after editing a file, or use UDT's **Watch** to reload on save.
 
@@ -88,6 +92,69 @@ with [UPIA](https://developer.adobe.com/photoshop/uxp/2022/guides/distribution/)
 
 Both the diagram and the tracks write straight through to the foreground
 swatch, live, while you drag.
+
+## The OKLCH Gradient panel
+
+A common way to paint is to work out the values in grayscale first and put the
+colour in afterwards with a gradient map. The problem with designing that
+gradient by hand is that it is very easy to move the painting's values while
+you are choosing its colours — a saturated blue picked to sit at "mid grey"
+is nothing like mid grey to look at.
+
+This panel designs the gradient in OKLCH instead, and **keeps the lightness the
+painting already has**. Black stays black, white stays white, and every grey in
+between comes out at exactly its own lightness with the chroma and hue you chose
+for it.
+
+| Control | What it does |
+| --- | --- |
+| Ramp | The gradient you are building, drawn against lightness. Press near a handle to take hold of it, press anywhere else to drop a new control point there. Drag a handle clear of the row, or press Delete, to throw it away. |
+| Handles | One per control point. The filled one is selected; everything below acts on it. |
+| Diagram | The gamut at the selected point's lightness, with the whole ramp's route drawn across it and a dot on each of the other control points. Click or drag to set chroma and hue; press a dot to take hold of that control point instead, which selects it without moving it and drags it if you carry on. |
+| Top track | Chroma, as a fraction of what the document can hold at this lightness and hue — so the whole track is in gamut, end to end. |
+| Middle track | Hue, right round the circle at that same relative chroma. |
+| Bottom track | The master amount: every control point's chroma at once. |
+| Preset | Twenty-five lighting conditions to start from, everyday ones first and then the stranger sort — daylight and tungsten through to sodium vapour and bioluminescence. Chroma is relative, so the everyday conditions sit between a third and three quarters of the way out to the gamut wall and the strange ones go most of the way. |
+| Button | Adds a gradient map layer when there is not one selected; otherwise it names the layer the panel is bound to. |
+
+Everything writes straight through to the layer while you drag, so the picture
+is the feedback. The panel edits **the gradient map layer you have selected** and
+nothing else, so there is never a hidden write to a layer you cannot see.
+
+The design travels with the layer: the control points are written into the
+gradient's name, so a document you reopen a week later comes back as three
+handles you can move, not a stop list nobody can edit.
+
+### Which blending mode, and why Normal
+
+The layer wants to be **Normal at 100%**, at the top of the stack or clipped to
+the painting. At Normal and full opacity an adjustment layer does no compositing
+arithmetic at all — the result *is* the gradient lookup — so what comes out is
+what the panel computed, and none of it depends on Photoshop's blend maths or on
+the *Blend RGB Colors Using Gamma* setting in Colour Settings.
+
+The alternatives were considered and three of them fail outright:
+
+- **Soft Light** cannot reach the colours. At base `b` its output can only land
+  in `[b², D(b)]`; at 50% grey that is `[0.25, 0.71]`, and a merely
+  orange midtone at that lightness needs a red channel of 0.74.
+- **Overlay** clips in the shadows: its range is `[0, 2b]` below mid, so at 20%
+  grey nothing past 40% is producible in any channel — exactly where a warm
+  shadow wants its red.
+- **Colour** cannot do it at all, and no gradient can fix that. Photoshop's
+  Colour mode preserves `0.30R + 0.59G + 0.11B` on the encoded values, so the
+  reachable set is *every* colour of that luminosity — and adding any correction
+  to the gradient cancels out exactly. It pins the wrong notion of lightness,
+  which is the thing OKLab exists to fix.
+- **Hard Light** is the one real contender: it is invertible, so the target can
+  be baked into the gradient. But it doubles the quantisation error, it leaks
+  any colour left in the "grayscale" underpainting, it changes meaning with the
+  gamma-blending preference, and the stops stop looking like the result — which
+  makes the gradient useless to anyone opening it in the Gradient Editor.
+
+Layer opacity then does something useful rather than something confusing: it
+fades back towards the original grayscale, and because both ends of that fade
+share a lightness, the fade is very nearly lightness-neutral too.
 
 ## How the gamut is computed
 
@@ -133,6 +200,65 @@ spaces lean away from blue-green and leave a quarter of the width clear
 ProPhoto is the exception: its imaginary primaries reach into that corner, so
 it gets a smaller badge.
 
+## How the gradient map is built
+
+Everything rests on one identity. For a neutral pixel with linear value `y`,
+OKLab lightness is exactly `y^(1/3)` — and exactly that in *every* working space
+the plugin knows, because a neutral maps to the space's own white point, the
+Bradford adaptation carries that onto D65 exactly, and both OKLab matrices have
+rows that sum to one. So a grayscale painting hands the panel its lightness
+directly, and a stop placed at position `encode(L³)` with lightness `L` puts it
+back untouched.
+
+That mapping is also why the ramp is drawn against lightness rather than along
+the gradient's own axis: **OKLab L = 0.5 is sRGB 99/255**, not 128. Laid out the
+other way, half the tonal range a painter cares about is squeezed into the left
+third of the strip.
+
+**Chroma is stored relative to the gamut**, as a fraction of the largest chroma
+the document can hold at that lightness and hue. Two things fall out of it. The
+gamut's chroma limit goes to zero at both ends of the lightness range, so the
+ramp tapers to neutral by itself — black stays black and white stays white with
+no pinned endpoints and no special cases. And a design can never ask for a
+colour the document cannot hold, so the ramp has no clamping crease in it.
+
+Between control points the panel interpolates the **chroma vector**, not the hue
+angle, so a blue shadow running to an orange midtone passes through low chroma
+rather than through whichever hues happen to lie between them. Ramps that really
+do want to sweep the wheel — the neon and aurora presets among them — ask for the
+hue angle instead. Either way the curve is a monotone cubic, which cannot
+overshoot into a chroma or a hue nobody asked for.
+
+**Control points and gradient stops are different things.** Three control points
+is the whole design; the stops are generated. Photoshop has three interpolation
+rules — Perceptual (OKLab, the default since 2023), Linear and Classic — and
+rather than bet on one, the panel seeds 33 stops uniform in lightness, plus one
+on each control point, and then bisects the worst interval until *all three*
+rules agree with the design. That takes 38 to 64 stops depending on the design
+and the space, and it makes the result the same whichever rule the host applies.
+
+What that buys, measured over every preset in every working space the plugin
+knows:
+
+| | Worst case | For scale |
+| --- | --- | --- |
+| Lightness | 0.0018 of OKLab L | an 8-bit step is 0.0035 |
+| Colour, anywhere a document can address | 0.0033 dE | a just-noticeable difference is about 0.02 |
+| Colour, including below the darkest 8-bit level | 0.0043 dE | |
+
+Lightness is the half that matters, and it is the half held tightest: a chroma
+error is a slightly different colour, a lightness error is the painting's values
+moving. The last row is a floor rather than an approximation — down where the
+linear values are the same order as the epsilon the gamut search tests against,
+the chroma it hands back is a shade optimistic and the clamp takes some of it
+away again. It happens at L = 0.01, in a colour that quantises to RGB (1, 0, 0),
+and no number of stops moves it.
+
+One property is worth calling out: at zero chroma a stop's encoded value is
+exactly its own position, so the neutral part of every ramp lies exactly on the
+diagonal and is reproduced perfectly at any stop count. All the error being
+refined away is chromatic.
+
 ### Things worth knowing
 
 - **The panel is not colour managed.** Photoshop paints UXP panels as sRGB, so
@@ -148,6 +274,17 @@ it gets a smaller badge.
 - Writing the colour uses `labColor`, which Photoshop converts into the
   document's space. If that call fails the panel retries with the document's
   RGB values.
+- **The document has to be in RGB mode** for the gradient map to produce colour.
+- The OKLCH Gradient panel asks for whichever gradient interpolation rule
+  Photoshop is already set to, rather than naming one. The descriptor key is
+  undocumented and a wrong spelling would fail the whole write, and since the
+  stops are refined against all three rules there is nothing to gain from
+  picking one. `INTERPOLATION_METHOD` in `src/ps.js` turns it on once the
+  spelling has been confirmed.
+- Dragging in the OKLCH Gradient panel writes on every frame, so a drag leaves several
+  history states rather than one. Collapsing them wants `suspendHistory` held
+  open across the drag, which is worth doing but wants testing against a real
+  Photoshop first.
 - Writes while you drag **coalesce**: at most one is ever in flight, and the
   next one carries whatever the state has become by then. The picker ignores
   the notification its own write comes back as, so the two directions of the
@@ -161,22 +298,27 @@ npm run icons   # regenerate icons/ — they are rendered by the panel's own cod
 ```
 
 `index.html` opens directly in a browser for UI work: the Photoshop bridge
-degrades to a no-op, so the panel starts on its default colour and writes go
-nowhere, but the diagram, the tracks and the swatch behave exactly as they do
-in Photoshop — including the way the layout compacts itself as you resize the
-window.
+degrades to a no-op, so the panels start on their defaults and writes go
+nowhere, but the diagrams, the tracks, the ramp and the swatches behave exactly
+as they do in Photoshop — including the way the layout compacts itself as you
+resize the window. Photoshop shows one `<uxp-panel>` per panel; a browser has
+never heard of the element, so with no host to hide one of them the two are put
+side by side.
 
 ### Layout
 
 | Path | Contents |
 | --- | --- |
-| `manifest.json` | UXP manifest (manifest version 5, panel entry point). |
-| `index.html` | Panel markup; loads the scripts below in order. |
+| `manifest.json` | UXP manifest (manifest version 5, two panel entry points). |
+| `index.html` | Both panels' markup, one `<uxp-panel>` each; loads the scripts below in order. |
 | `src/color.js` | OKLab/OKLCH, working-space matrices, transfer functions, gamut search, Lab, profile-name matching. No DOM. |
-| `src/render.js` | Pixel generators for the diagram and the ramps. |
+| `src/gradient.js` | The gradient map design: control points, splines, relative chroma, stop placement, the presets, and a simulator of Photoshop's interpolation to check the result against. No DOM. |
+| `src/render.js` | Pixel generators for the diagram, the ramps and the route overlay. |
 | `src/png.js` | RGBA → PNG → data URI, for hosts without a working canvas. |
-| `src/ps.js` | Photoshop bridge: document profile, reading and writing swatches, notifications. |
-| `src/ui.js` | Panel state, the foreground binding, repaint scheduling, layout and event wiring. |
+| `src/surface.js` | DOM plumbing shared by the panels: the paint surface and pointer dragging. |
+| `src/ps.js` | Photoshop bridge: document profile, swatches, gradient map layers, notifications. |
+| `src/ui.js` | The picker: state, the foreground binding, repaint scheduling, layout and event wiring. |
+| `src/gradui.js` | The OKLCH Gradient panel, the same way. |
 | `test/` | Unit tests for everything above the DOM. |
 
 The renderer writes into an RGBA buffer and the panel decides where it goes: it

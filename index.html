@@ -6,40 +6,93 @@
   <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
-  <div id="root">
 
-    <div id="plotrow" class="plotrow">
-      <div id="plot" class="plot">
-        <div id="plotSurface" class="surface"></div>
-        <div id="plotMarker" class="marker"><i></i></div>
+  <!-- One document, two panels.  Photoshop shows each <uxp-panel> in the panel
+       whose id it carries; a browser has no idea what one is, so styles.css
+       puts them side by side when the host is missing. -->
+  <uxp-panel panelid="okpicker.panel" id="pickerPanel" class="panel">
+    <div id="root">
+
+      <div id="plotrow" class="plotrow">
+        <div id="plot" class="plot">
+          <div id="plotSurface" class="surface"></div>
+          <div id="plotMarker" class="marker"><i></i></div>
+        </div>
+        <!-- A sibling of the diagram, not a child: it belongs to the controls and
+             stays put when the diagram floats.  Being a sibling is also what stops
+             a press on it reaching the diagram's handler. -->
+        <div id="swatch" class="swatch"></div>
       </div>
-      <!-- A sibling of the diagram, not a child: it belongs to the controls and
-           stays put when the diagram floats.  Being a sibling is also what stops
-           a press on it reaching the diagram's handler. -->
-      <div id="swatch" class="swatch"></div>
+
+      <div id="sliders" class="sliders">
+        <div id="lTrack" class="track">
+          <div id="lTrackSurface" class="surface"></div>
+          <div id="lThumb" class="thumb"></div>
+        </div>
+        <div id="cTrack" class="track">
+          <div id="cTrackSurface" class="surface"></div>
+          <div id="cThumb" class="thumb"></div>
+        </div>
+        <div id="hTrack" class="track">
+          <div id="hTrackSurface" class="surface"></div>
+          <div id="hThumb" class="thumb"></div>
+        </div>
+      </div>
+
     </div>
+  </uxp-panel>
 
-    <div id="sliders" class="sliders">
-      <div id="lTrack" class="track">
-        <div id="lTrackSurface" class="surface"></div>
-        <div id="lThumb" class="thumb"></div>
+  <uxp-panel panelid="okpicker.gradient" id="gradientPanel" class="panel">
+    <div id="groot">
+
+      <!-- The ramp is drawn against lightness, not against the gradient's own
+           axis, so the shadows get the room they are worth: OKLab L = 0.5 is
+           only 39% of the way along an sRGB gradient. -->
+      <div id="gRampRow" class="ramprow">
+        <div id="gRamp" class="ramp">
+          <div id="gRampSurface" class="surface"></div>
+        </div>
+        <div id="gHandles" class="handles"></div>
       </div>
-      <div id="cTrack" class="track">
-        <div id="cTrackSurface" class="surface"></div>
-        <div id="cThumb" class="thumb"></div>
+
+      <div id="gPlotRow" class="plotrow">
+        <div id="gPlot" class="plot">
+          <div id="gPlotSurface" class="surface"></div>
+          <div id="gPlotMarker" class="marker"><i></i></div>
+        </div>
+        <div id="gSwatch" class="swatch"></div>
       </div>
-      <div id="hTrack" class="track">
-        <div id="hTrackSurface" class="surface"></div>
-        <div id="hThumb" class="thumb"></div>
+
+      <div id="gSliders" class="sliders">
+        <div id="gCTrack" class="track">
+          <div id="gCTrackSurface" class="surface"></div>
+          <div id="gCThumb" class="thumb"></div>
+        </div>
+        <div id="gHTrack" class="track">
+          <div id="gHTrackSurface" class="surface"></div>
+          <div id="gHThumb" class="thumb"></div>
+        </div>
+        <div id="gATrack" class="track">
+          <div id="gATrackSurface" class="surface"></div>
+          <div id="gAThumb" class="thumb"></div>
+        </div>
       </div>
+
+      <div id="gFoot" class="foot">
+        <select id="gPreset" class="preset"></select>
+        <div id="gAction" class="action"></div>
+      </div>
+
     </div>
-
-  </div>
+  </uxp-panel>
 
   <script src="src/color.js"></script>
   <script src="src/png.js"></script>
   <script src="src/render.js"></script>
+  <script src="src/gradient.js"></script>
+  <script src="src/surface.js"></script>
   <script src="src/ps.js"></script>
   <script src="src/ui.js"></script>
+  <script src="src/gradui.js"></script>
 </body>
 </html>

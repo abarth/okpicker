@@ -247,3 +247,32 @@ test('the bottom-left corner is big enough for the swatch', () => {
       sp.id + ' bottom-left is only ' + (C.freeBottomLeft(sp) * 100).toFixed(1) + '%');
   });
 });
+
+test('a press picks the marker it lands on, and nothing when it lands clear', () => {
+  const bounds = C.spaceBounds(srgb);
+  const marks = [{ C: 0.05, H: 250 }, { C: 0.14, H: 40 }, { C: 0.09, H: 95 }];
+  const size = 300;
+
+  // Dead on each marker.
+  marks.forEach((mark, i) => {
+    const f = R.markerFraction(mark.C, mark.H, bounds);
+    assert.strictEqual(R.markerHit(marks, f.x, f.y, bounds, size, size, 9), i, 'marker ' + i);
+  });
+
+  // Just inside the radius, and just outside it.
+  const f0 = R.markerFraction(marks[0].C, marks[0].H, bounds);
+  assert.strictEqual(R.markerHit(marks, f0.x + 8 / size, f0.y, bounds, size, size, 9), 0, 'inside');
+  assert.strictEqual(R.markerHit(marks, f0.x + 10 / size, f0.y, bounds, size, size, 9), -1, 'outside');
+
+  // The radius is in element pixels, so it is a circle even when the window is
+  // not square: eight pixels down misses on a plot half as tall only because
+  // eight pixels is still eight pixels.
+  assert.strictEqual(R.markerHit(marks, f0.x, f0.y + 8 / size, bounds, size, size, 9), 0, 'vertical');
+  assert.strictEqual(R.markerHit(marks, f0.x, f0.y + 8 / 150, bounds, size, 150, 9), 0, 'short plot');
+
+  // Between two markers, the nearer one wins.
+  const f1 = R.markerFraction(marks[1].C, marks[1].H, bounds);
+  const near1 = { x: f1.x + 0.6 * (f0.x - f1.x), y: f1.y + 0.6 * (f0.y - f1.y) };
+  assert.strictEqual(R.markerHit(marks, near1.x, near1.y, bounds, size, size, 1000), 0, 'nearest wins');
+  assert.strictEqual(R.markerHit([], 0.5, 0.5, bounds, size, size, 9), -1, 'nothing to hit');
+});

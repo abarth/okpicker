@@ -254,6 +254,95 @@
     });
   }
 
+  // ---------------------------------------------------------- plot overlays
+
+  /** Source-over one sample onto the RGBA buffer, straight (unpremultiplied). */
+  function blendPixel(data, i, rgb, alpha) {
+    if (alpha <= 0) return;
+    if (alpha > 1) alpha = 1;
+    var dstA = data[i + 3] / 255;
+    var outA = alpha + dstA * (1 - alpha);
+    if (outA <= 0) return;
+    var k = dstA * (1 - alpha);
+    data[i] = (rgb[0] * alpha + data[i] * k) / outA;
+    data[i + 1] = (rgb[1] * alpha + data[i + 1] * k) / outA;
+    data[i + 2] = (rgb[2] * alpha + data[i + 2] * k) / outA;
+    data[i + 3] = outA * 255;
+  }
+
+  /** Anti-aliased line segment of the given half-width. */
+  function strokeSegment(img, x0, y0, x1, y1, radius, rgb, alpha) {
+    var data = img.data;
+    var minX = Math.max(0, Math.floor(Math.min(x0, x1) - radius - 1));
+    var maxX = Math.min(img.width - 1, Math.ceil(Math.max(x0, x1) + radius + 1));
+    var minY = Math.max(0, Math.floor(Math.min(y0, y1) - radius - 1));
+    var maxY = Math.min(img.height - 1, Math.ceil(Math.max(y0, y1) + radius + 1));
+    var dx = x1 - x0, dy = y1 - y0;
+    var lenSq = dx * dx + dy * dy;
+
+    for (var y = minY; y <= maxY; y++) {
+      for (var x = minX; x <= maxX; x++) {
+        var px = x + 0.5 - x0, py = y + 0.5 - y0;
+        var t = lenSq > 0 ? clamp01((px * dx + py * dy) / lenSq) : 0;
+        var ex = px - dx * t, ey = py - dy * t;
+        var d = Math.sqrt(ex * ex + ey * ey);
+        // One pixel of feather at the edge of the stroke.
+        var cov = radius + 0.5 - d;
+        if (cov <= 0) continue;
+        blendPixel(data, (y * img.width + x) * 4, rgb, alpha * (cov > 1 ? 1 : cov));
+      }
+    }
+  }
+
+  function strokeDot(img, x, y, radius, rgb, alpha) {
+    strokeSegment(img, x, y, x, y, radius, rgb, alpha);
+  }
+
+  var PATH_DARK = [20, 20, 20];
+  var PATH_LIGHT = [255, 255, 255];
+
+  /**
+   * Draw a design's route across the C/H diagram onto an already-painted plot:
+   * the whole ramp as one path, with a dot on each control point.  Chroma and
+   * hue are the diagram's own coordinates, so the route is meaningful even
+   * though every point on it belongs to a different lightness - which is also
+   * why stretches of it fall outside the slice being shown.
+   *
+   * Stroked dark-then-light so it reads over any fill, in or out of gamut.
+   *
+   * @param {object} img            buffer from chPlot, modified in place
+   * @param {object} opts
+   * @param {Array} opts.path       [{C, H}] along the ramp, in order
+   * @param {Array} [opts.marks]    [{C, H, selected}] control points
+   * @param {object} opts.bounds    the same window chPlot was given
+   */
+  function pathOverlay(img, opts) {
+    var bounds = opts.bounds;
+    var path = opts.path || [];
+
+    function place(p) {
+      var f = markerFraction(p.C, p.H, bounds);
+      return [f.x * img.width, f.y * img.height];
+    }
+
+    var pts = path.map(place);
+    var i;
+    for (i = 1; i < pts.length; i++) {
+      strokeSegment(img, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], 1.6, PATH_DARK, 0.55);
+    }
+    for (i = 1; i < pts.length; i++) {
+      strokeSegment(img, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], 0.6, PATH_LIGHT, 0.9);
+    }
+
+    (opts.marks || []).forEach(function (m) {
+      if (m.selected) return; // the live marker is a DOM element, drawn over the top
+      var q = place(m);
+      strokeDot(img, q[0], q[1], 3.1, PATH_DARK, 0.7);
+      strokeDot(img, q[0], q[1], 2.1, PATH_LIGHT, 0.95);
+    });
+    return img;
+  }
+
   // ------------------------------------------------------- plot <-> geometry
   // The plot window maps `bounds` onto the element exactly, so a colour at
   // (C, H) sits at these fractions of it and back again.
@@ -265,6 +354,36 @@
       x: (a - bounds.aMin) / (bounds.aMax - bounds.aMin),
       y: (bounds.bMax - b) / (bounds.bMax - bounds.bMin)
     };
+  }
+
+  /**
+   * Which of `marks` a press at (fx, fy) landed on, or -1 for none of them.
+   *
+   * The distance is measured in the element's own pixels rather than in chroma,
+   * so the target stays the same size on screen wherever in the gamut the mark
+   * happens to sit - and so that a space whose plot window is not square does
+   * not end up with oval targets.
+   *
+   * @param {Array} marks    [{C, H}] in the same coordinates as markerFraction
+   * @param {object} bounds  the window the plot was painted with
+   * @param {number} width   the element's width in pixels
+   * @param {number} height  ...and its height
+   * @param {number} radius  how far a press may land from a mark, in pixels
+   */
+  function markerHit(marks, fx, fy, bounds, width, height, radius) {
+    var best = -1;
+    var bestSq = radius * radius;
+    for (var i = 0; i < marks.length; i++) {
+      var f = markerFraction(marks[i].C, marks[i].H, bounds);
+      var dx = (fx - f.x) * width;
+      var dy = (fy - f.y) * height;
+      var distSq = dx * dx + dy * dy;
+      if (distSq <= bestSq) {
+        bestSq = distSq;
+        best = i;
+      }
+    }
+    return best;
   }
 
   function fractionToCh(fx, fy, bounds) {
@@ -280,10 +399,13 @@
     buffer: buffer,
     encode255: encode255,
     chPlot: chPlot,
+    ramp: ramp,
+    pathOverlay: pathOverlay,
     lightnessRamp: lightnessRamp,
     chromaRamp: chromaRamp,
     hueRamp: hueRamp,
     markerFraction: markerFraction,
+    markerHit: markerHit,
     fractionToCh: fractionToCh
   };
 });
